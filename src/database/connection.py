@@ -3,6 +3,7 @@ import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
+from sqlalchemy.dialects import postgresql
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +41,17 @@ else:
     except Exception:
         logger.info("[DB Connection] Using DATABASE_URL: (Could not parse for safe logging)")
 
-# Create engine (will raise error if URL is invalid or DB not reachable)
+# Create engine
 try:
+    # Explicitly reference the dialect before engine creation
+    _ = postgresql.dialect
+    logger.info("[DB Connection] PostgreSQL dialect referenced.")
+    
     engine = create_engine(DATABASE_URL)
     logger.info("[DB Connection] SQLAlchemy engine created.")
 except Exception as e:
     logger.error(f"[DB Connection] Failed to create SQLAlchemy engine: {e}")
-    # Optionally raise or exit if engine creation is critical at import time
-    engine = None # Set engine to None to indicate failure
+    engine = None
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
