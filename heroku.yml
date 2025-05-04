@@ -1,10 +1,11 @@
 build:
   docker:
     web: Dockerfile
+    release: Dockerfile # Add explicit release build target
     # If we had a separate worker Dockerfile:
     # worker: backend/Dockerfile 
 release:
-  image: web # Use the same image built for the web process
+  image: release # Use the release image
   command:
     - alembic upgrade head
 run:
