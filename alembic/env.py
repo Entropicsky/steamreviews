@@ -3,6 +3,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy import create_engine
 
 from alembic import context
 
@@ -46,16 +47,12 @@ target_metadata = Base.metadata # Now use the imported Base
 # Ensure DATABASE_URL is loaded from environment for env.py
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+db_url = os.getenv('DATABASE_URL')
+if not db_url:
+     raise ValueError("DATABASE_URL not found in environment for Alembic env.py")
 
-# Set the sqlalchemy.url in the config object if not already set via ini
-# This makes sure env.py can connect even if alembic.ini isn't fully processed
-if not config.get_main_option('sqlalchemy.url'):
-    db_url = os.getenv('DATABASE_URL')
-    if db_url:
-        config.set_main_option('sqlalchemy.url', db_url)
-    else:
-        # Handle error if no DB URL found
-        raise ValueError("DATABASE_URL not found in environment or alembic.ini")
+# Set URL in config for offline mode or other uses if needed
+config.set_main_option('sqlalchemy.url', db_url)
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -88,16 +85,11 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = config.attributes.get("connection", None)
+    # Create engine explicitly using the loaded db_url
+    # This bypasses potential issues with engine_from_config in release phase
+    engine = create_engine(db_url, poolclass=pool.NullPool)
 
-    if connectable is None:
-        connectable = engine_from_config(
-            config.get_section(config.config_ini_section, {}),
-            prefix="sqlalchemy.",
-            poolclass=pool.NullPool,
-        )
-
-    with connectable.connect() as connection:
+    with engine.connect() as connection:
         context.configure(
             connection=connection, target_metadata=target_metadata
         )
