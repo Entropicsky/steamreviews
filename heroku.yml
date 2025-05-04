@@ -7,7 +7,8 @@ build:
 release:
   image: release # Use the release image
   command:
-    - alembic upgrade head
+    # - alembic upgrade head # Disable automatic migration
+    - true # Use no-op command for release phase
 run:
   web: gunicorn streamlit_app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0
   # Optional: Define command for worker dyno if needed later
