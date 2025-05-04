@@ -7,8 +7,9 @@ from sqlalchemy import create_engine
 
 from alembic import context
 
-# Explicitly import the DB driver to ensure it's available in release phase
+# Explicitly import the DB driver AND the dialect
 import psycopg2 
+from sqlalchemy.dialects import postgresql
 
 # This line makes sure src/ is in the path for imports
 # Get the directory of the alembic folder
@@ -23,6 +24,9 @@ if project_root not in sys.path:
 
 # Import Base from your models file first to ensure models are registered
 from src.database.models import Base
+
+# Import the engine directly from our connection module
+from src.database.connection import engine as application_engine 
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -79,17 +83,15 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+    """Run migrations in 'online' mode using the application's engine."""
+    
+    # Use the application's already configured engine
+    connectable = application_engine 
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
+    if connectable is None:
+         raise RuntimeError("Application database engine is not initialized!")
 
-    """
-    # Create engine explicitly using the loaded db_url
-    # This bypasses potential issues with engine_from_config in release phase
-    engine = create_engine(db_url, poolclass=pool.NullPool)
-
-    with engine.connect() as connection:
+    with connectable.connect() as connection:
         context.configure(
             connection=connection, target_metadata=target_metadata
         )
