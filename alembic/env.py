@@ -25,8 +25,8 @@ if project_root not in sys.path:
 # Import Base from your models file first to ensure models are registered
 from src.database.models import Base
 
-# Import the engine directly from our connection module
-from src.database.connection import engine as application_engine 
+# Import the engine directly from our connection module -- REMOVE this import
+# from src.database.connection import engine as application_engine 
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -83,13 +83,18 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode using the application's engine."""
-    
-    # Use the application's already configured engine
-    connectable = application_engine 
+    """Run migrations in 'online' mode.
 
-    if connectable is None:
-         raise RuntimeError("Application database engine is not initialized!")
+    In this scenario we need to create an Engine
+    and associate a connection with the context.
+
+    """
+    # Revert to using engine_from_config, which reads from config object
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
 
     with connectable.connect() as connection:
         context.configure(
