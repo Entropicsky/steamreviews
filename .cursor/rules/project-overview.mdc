@@ -1,0 +1,27 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Steam Reviews Analysis Tool Overview
+
+This project is a tool to analyze Steam game reviews, with a special focus on translating Chinese reviews to English using OpenAI's Responses API.
+
+## Project Structure
+- `src/prototype.py`: Initial prototype for fetching and analyzing Chinese Steam reviews
+- Main modules:
+  - Data collection: Fetches reviews from Steam API
+  - Translation: Uses OpenAI to translate reviews
+  - Analysis: Summarizes trends and insights
+  - UI: Will be implemented with Streamlit
+
+## Key Components
+- Steam API integration for fetching reviews
+- OpenAI Responses API for translation and analysis
+- Caching mechanism for both reviews and translations
+- Analysis of review sentiment and key themes
+
+## Requirements
+- Python 3.8+
+- OpenAI API key stored in `.env` file
+- Dependencies listed in `requirements.txt`

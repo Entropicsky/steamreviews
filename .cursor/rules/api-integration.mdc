@@ -1,0 +1,30 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# API Integration Guidelines
+
+## Steam API Integration
+- Use the public endpoint: `https://store.steampowered.com/appreviews/{appid}`
+- Always include appropriate headers including User-Agent
+- Implement rate limiting (1 second between requests)
+- Handle pagination via cursor mechanism
+- Cache responses to avoid redundant API calls
+- Support language filtering (especially for Chinese: 'schinese' and 'tchinese')
+
+## OpenAI API Integration
+- Store API keys in `.env` file (never commit API keys)
+- Use the modern OpenAI client library
+- Use the Responses API for translations and analysis
+- Implement retry logic for API failures
+- Cache translations to minimize API costs
+- Set appropriate context in prompts for better results
+- Use system and user messages correctly in the Responses API
+
+## General API Guidelines
+- Implement error handling for all API calls
+- Log API responses at appropriate logging levels
+- Set reasonable timeouts for all requests
+- Use dataclasses or models to structure API responses
+- Implement proper exception handling for network issues

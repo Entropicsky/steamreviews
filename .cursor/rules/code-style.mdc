@@ -1,0 +1,37 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Python Code Style Guidelines
+
+## General Practices
+- Follow PEP 8 style guidelines
+- Use 4 spaces for indentation
+- Maximum line length: 88 characters (Black formatter standard)
+- Add docstrings to all functions, classes, and modules
+- Use type hints for function parameters and return values
+
+## Naming Conventions
+- Use `snake_case` for variables and functions
+- Use `CamelCase` for classes
+- Use `UPPER_CASE` for constants
+- Module names should be short and all lowercase
+
+## Code Organization
+- Import order: standard library, third-party, project modules
+- Within each category, imports should be alphabetized
+- Use absolute imports rather than relative imports when possible
+- Each module should have a clear, specific purpose
+
+## Documentation
+- Docstrings should follow the Google docstring format
+- Include examples in docstrings for complex functions
+- Add inline comments for non-obvious code sections
+- Keep docstrings updated when changing function behavior
+
+## Error Handling
+- Use specific exception types when raising exceptions
+- Handle exceptions at appropriate levels of abstraction
+- Log errors with context information
+- Don't catch exceptions too broadly

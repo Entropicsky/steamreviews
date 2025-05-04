@@ -1,0 +1,1 @@
+# Makes scripts a Python package (optional but good practice) 

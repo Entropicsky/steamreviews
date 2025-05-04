@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  db: # PostgreSQL Service
+    image: postgres:16-alpine # Use a specific version of Postgres
+    environment:
+      POSTGRES_DB: steam_reviews_db # Database name
+      POSTGRES_USER: steam_user     # Username
+      POSTGRES_PASSWORD: steam_password # Choose a password
+    ports:
+      - "5433:5432" # Map container port 5432 to HOST port 5433 (avoids conflict if local 5432 is used)
+    volumes:
+      - pgdata_steam_reviews:/var/lib/postgresql/data # Persist data in a named volume
+    restart: unless-stopped
+
+volumes:
+  pgdata_steam_reviews: # Define the named volume 
