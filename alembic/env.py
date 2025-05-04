@@ -6,6 +6,9 @@ from sqlalchemy import pool
 
 from alembic import context
 
+# Explicitly import the DB driver to ensure it's available in release phase
+import psycopg2 
+
 # This line makes sure src/ is in the path for imports
 # Get the directory of the alembic folder
 alembic_dir = os.path.dirname(__file__)
