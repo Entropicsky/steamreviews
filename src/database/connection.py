@@ -20,35 +20,46 @@ else:
     load_dotenv(override=True) # Fallback
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+ENGINE_URL = None # Separate variable for potentially modified URL
 
 if not DATABASE_URL:
     logger.error("DATABASE_URL environment variable not set. Exiting.")
-    # In a real app, might raise or exit
-    # For now, just log and let engine creation fail
 else:
+    # Ensure the URL uses the correct scheme for psycopg
+    if DATABASE_URL.startswith("postgres://"): # Heroku provides postgres://
+        ENGINE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+    elif DATABASE_URL.startswith("postgresql://"): # Handle local override
+         ENGINE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+    else:
+         ENGINE_URL = DATABASE_URL # Assume it's already correct?
+
     # Mask password for logging
     try:
         from urllib.parse import urlparse, urlunparse
-        parsed = urlparse(DATABASE_URL)
+        parsed = urlparse(ENGINE_URL)
         if parsed.password:
              safe_netloc = f"{parsed.username}:***@{parsed.hostname}:{parsed.port}"
              safe_url_parts = list(parsed)
              safe_url_parts[1] = safe_netloc
              safe_url = urlunparse(safe_url_parts)
-             logger.info(f"[DB Connection] Using DATABASE_URL: {safe_url}")
+             logger.info(f"[DB Connection] Using engine URL: {safe_url}")
         else:
-             logger.info(f"[DB Connection] Using DATABASE_URL: {DATABASE_URL}")
+             logger.info(f"[DB Connection] Using engine URL: {ENGINE_URL}")
     except Exception:
-        logger.info("[DB Connection] Using DATABASE_URL: (Could not parse for safe logging)")
+        logger.info("[DB Connection] Using engine URL: (Could not parse for safe logging)")
 
 # Create engine
 try:
-    # Explicitly reference the dialect before engine creation
-    _ = postgresql.dialect
-    logger.info("[DB Connection] PostgreSQL dialect referenced.")
+    # Remove explicit dialect reference
+    # _ = postgresql.dialect
+    # logger.info("[DB Connection] PostgreSQL dialect referenced.")
     
-    engine = create_engine(DATABASE_URL)
-    logger.info("[DB Connection] SQLAlchemy engine created.")
+    if ENGINE_URL:
+        engine = create_engine(ENGINE_URL)
+        logger.info("[DB Connection] SQLAlchemy engine created using psycopg.")
+    else:
+         engine = None
+         logger.error("[DB Connection] Could not determine valid ENGINE_URL.")
 except Exception as e:
     logger.error(f"[DB Connection] Failed to create SQLAlchemy engine: {e}")
     engine = None
