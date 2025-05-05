@@ -3,6 +3,7 @@ import datetime # Import datetime module
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func as sql_func # Alias func to avoid conflict
 
 from . import models
 from .connection import get_db # Use get_db for session management
@@ -184,6 +185,18 @@ def get_app_last_update_time(db: Session, app_id: int) -> Optional[int]:
     except Exception as e:
         logger.error(f"Error fetching last update time for app {app_id}: {e}")
         return None
+
+def get_max_review_timestamp_for_app(db: Session, app_id: int) -> Optional[int]:
+    """Gets the maximum timestamp_created for a given app_id from the reviews table."""
+    try:
+        max_timestamp = db.query(sql_func.max(models.Review.timestamp_created))\
+                        .filter(models.Review.app_id == app_id)\
+                        .scalar()
+        logger.info(f"Max timestamp found in DB for app {app_id}: {max_timestamp}")
+        return max_timestamp
+    except Exception as e:
+         logger.error(f"Error querying max timestamp for app {app_id}: {e}")
+         return None
 
 # Placeholder for next function
 # def ... 

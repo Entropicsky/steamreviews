@@ -39,7 +39,6 @@ def backfill_app(app_id: int):
     total_fetched_this_run = 0
     page_num = 0
     cursor = "*"
-    overall_highest_ts = 0 # Track the highest timestamp seen across all pages
 
     try:
         while True: 
@@ -57,9 +56,6 @@ def backfill_app(app_id: int):
                  logger.info(f"No more reviews found for App ID {app_id} on page {page_num}. Backfill likely complete.")
                  break 
             
-            # Update overall highest timestamp
-            overall_highest_ts = max(overall_highest_ts, highest_ts_in_batch)
-
             batch_size = len(reviews_batch)
             total_fetched_this_run += batch_size
             logger.info(f"Fetched {batch_size} reviews from page {page_num}. Total fetched this run: {total_fetched_this_run}")
@@ -119,12 +115,17 @@ def backfill_app(app_id: int):
 
             time.sleep(2) # Keep the sleep between page fetches
 
-        # === After Loop: Update the Timestamp in DB ===
-        if total_fetched_this_run > 0 and overall_highest_ts > 0:
-             logger.info(f"Backfill complete for {app_id}. Updating last_fetched_timestamp to {overall_highest_ts}")
-             crud.update_last_fetch_time(db, app_id, overall_highest_ts)
+        # === After Loop: Get Max Timestamp from DB and Update ===
+        logger.info(f"Backfill fetch complete for {app_id}. Querying max timestamp from DB...")
+        max_timestamp_from_db = crud.get_max_review_timestamp_for_app(db, app_id)
+
+        if max_timestamp_from_db is not None and max_timestamp_from_db > 0:
+             logger.info(f"Updating last_fetched_timestamp for app {app_id} to {max_timestamp_from_db} based on DB MAX.")
+             crud.update_last_fetch_time(db, app_id, max_timestamp_from_db)
         else:
-             logger.info(f"Backfill for {app_id} finished, but no reviews were fetched or no valid timestamp found. Timestamp not updated.")
+             # If no reviews were inserted OR max query failed, maybe don't update?
+             # Or update to 0? Let's log a warning and not update.
+             logger.warning(f"Could not retrieve valid max timestamp from DB for app {app_id}. last_fetched_timestamp not updated.")
 
     except Exception as e:
         logger.exception(f"An error occurred during backfill for app {app_id}: {e}")
