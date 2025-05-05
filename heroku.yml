@@ -1,15 +1,17 @@
 build:
   docker:
     web: Dockerfile
-    release: Dockerfile # Add explicit release build target
+    release: Dockerfile # Use same Dockerfile for build/release
+    api: Dockerfile # Use same Dockerfile for api process
     # If we had a separate worker Dockerfile:
     # worker: backend/Dockerfile 
 release:
-  image: release # Use the release image
+  image: release # Use the release image built from Dockerfile
   command:
     # - alembic upgrade head # Disable automatic migration
     - true # Use no-op command for release phase
 run:
   web: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.enableCORS false --server.enableXsrfProtection false
+  api: uvicorn api_server:app --host 0.0.0.0 --port $PORT --workers 1 # Define the command to run the API server
   # Optional: Define command for worker dyno if needed later
   # worker: python -m src.run_pipeline 
