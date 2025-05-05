@@ -41,13 +41,13 @@ def health_check():
     """Basic health check endpoint."""
     return {"status": "ok"}
 
-@app.post("/generate_report")
+@app.get("/generate_report")
 async def trigger_generate_report(
     timespan: str = Query(..., description="Time span for the report ('weekly' or 'monthly')"),
-    app_id: int = Query(..., description="Steam App ID for the report (e.g., 3228590)") # Now required
+    app_id: int = Query(..., description="Steam App ID for the report (e.g., 3228590)")
 ):
     """Triggers the generation of the Excel report, uploads it, and returns a pre-signed URL."""
-    logger.info(f"Received request to generate report for App ID: {app_id}, Timespan: {timespan}")
+    logger.info(f"Received GET request to generate report for App ID: {app_id}, Timespan: {timespan}")
     # app_id_to_use = PRIMARY_APP_ID # Removed - use app_id directly
 
     # 1. Calculate start_timestamp
