@@ -10,6 +10,6 @@ release:
     # - alembic upgrade head # Disable automatic migration
     - true # Use no-op command for release phase
 run:
-  web: gunicorn streamlit_app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0
+  web: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.enableCORS false --server.enableXsrfProtection false
   # Optional: Define command for worker dyno if needed later
   # worker: python -m src.run_pipeline 
