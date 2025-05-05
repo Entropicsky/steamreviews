@@ -10,4 +10,5 @@ psycopg2-binary
 streamlit
 gunicorn
 alembic
-xlsxwriter 
+xlsxwriter
+slack_sdk 
