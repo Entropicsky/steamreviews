@@ -27,11 +27,11 @@ async def _generate_single_summary(
     context_description: str, # e.g., "language English", "overall"
     num_reviews: int,
     schema_string: str,
-    model: str = OPENAI_MODEL,
-    max_tokens: int = 1500
+    max_tokens: int, # Removed default, will be passed in call
+    model: str = OPENAI_MODEL
 ) -> Dict[str, Any]:
     """Helper async function to generate one summary using the LLM."""
-    logger.info(f"Starting LLM summary generation for {context_description} ({num_reviews} reviews)...")
+    logger.info(f"Starting LLM summary generation for {context_description} ({num_reviews} reviews) with max_tokens={max_tokens}...")
     summary_data = {"error": f"LLM Summary generation failed for {context_description} (Unknown reason)."}
 
     if not input_text.strip():
@@ -62,7 +62,7 @@ If a category has no relevant information in this batch, provide an empty list `
             prompt=prompt,
             model=model,
             temperature=0.3,
-            max_tokens=max_tokens
+            max_tokens=max_tokens # Use passed value
         )
 
         if summary_response_text and not summary_response_text.startswith("[REFUSAL"):
@@ -204,7 +204,7 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                         texts_for_summary.append(f"Review (ID: {row.get('recommendationid')}): {original_text}")
                     # else: log warning maybe? Review has no usable text.
 
-            lang_summary_input_text = "\n---\n".join(texts_for_summary[:200])
+            lang_summary_input_text = "\n---\n".join(texts_for_summary)
             language_data_map[lang_code]['task_index'] = len(tasks) - 1 # Map lang to its task index
 
             if lang_summary_input_text.strip():
@@ -213,7 +213,7 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                     context_description=f"language {lang_name} ({lang_code})",
                     num_reviews=len(texts_for_summary),
                     schema_string=json_schema_string,
-                    max_tokens=1500
+                    max_tokens=3000 # Increased max_tokens for per-language
                 )
                 tasks.append(task)
             else:
@@ -230,7 +230,7 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
             elif row.get('original_language') == 'english' and row.get('original_review_text'):
                 overall_texts_for_summary.append(f"Review (Lang: {row.get('original_language')}, ID: {row.get('recommendationid')}): {row.get('original_review_text')}")
 
-        overall_summary_input_text = "\n---\n".join(overall_texts_for_summary[:300])
+        overall_summary_input_text = "\n---\n".join(overall_texts_for_summary)
         overall_task_index = -1 # Keep track of the overall task
 
         if overall_summary_input_text.strip():
@@ -239,7 +239,7 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                 context_description="overall",
                 num_reviews=len(overall_texts_for_summary),
                 schema_string=json_schema_string,
-                max_tokens=2000
+                max_tokens=4000 # Increased max_tokens for overall
             )
             tasks.append(overall_task)
             overall_task_index = len(tasks) - 1
