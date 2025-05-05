@@ -89,9 +89,10 @@ async def run_report_and_upload(app_id: int, timespan: str, channel_id: str):
     try:
         client = AsyncWebClient(token=SLACK_BOT_TOKEN)
         filename = f"steam_reviews_{app_id}_{timespan}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx"
+        logger.info(f"Attempting Slack upload with: channel='{channel_id}', file='{tmp_file_path}', filename='{filename}'")
         response = await client.files_upload_v2(
             channel=channel_id,
-            filepath=tmp_file_path,
+            file=tmp_file_path,
             filename=filename,
             initial_comment=f"Steam Reviews Summary Report for App ID {app_id} ({timespan} - {time_period_desc})",
             title=f"Steam Reviews {timespan.capitalize()} Report"
