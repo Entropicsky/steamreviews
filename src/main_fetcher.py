@@ -50,12 +50,11 @@ def run_fetcher():
             try:
                 # === Fetching New Reviews ===
                 logger.info(f"Fetching new reviews (language='all') for App ID {app.app_id} after timestamp {last_fetch}...")
-                # Call the updated fetch_reviews
-                new_reviews, highest_ts_in_run = steam_api.fetch_reviews(
+                # Call the updated fetch_reviews - unpack all 3 returned values
+                new_reviews, highest_ts_in_run, _ = steam_api.fetch_reviews(
                     appid=app.app_id,
                     language='all',
                     after_timestamp=last_fetch
-                    # max_reviews is not used for incremental fetching
                 )
 
                 if not new_reviews:
