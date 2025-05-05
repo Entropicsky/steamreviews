@@ -37,36 +37,24 @@ def backfill_app(app_id: int):
     db = next(db_session_gen)
     steam_api = SteamAPI()
     total_fetched_this_run = 0
-    total_inserted_this_run = 0 # Track inserts specifically if needed
-    page_num = 0
-    cursor = "*" # Start from the beginning
 
     try:
-        while True: # Loop until no more reviews are returned
-            page_num += 1
-            # --- TEST LIMITATION REMOVED --- 
-            # if page_num > 2:
-            #     logger.warning("TESTING: Stopping backfill after 2 pages.")
-            #     break
-            # --- END TEST LIMITATION ---
-            logger.info(f"Backfilling App {app_id} - Fetching page {page_num} with cursor: {cursor[:10]}...")
-            
-            # Fetch reviews without timestamp filter
-            # fetch_reviews returns (list[Review], latest_timestamp, next_cursor)
-            reviews_batch, _, next_cursor = steam_api.fetch_reviews(
-                appid=app_id,
-                language='all', # Fetch all languages
-                after_timestamp=None # No timestamp filter for backfill
-                # max_reviews is ignored by fetch_reviews when after_timestamp is None (or we can set high)
-            )
-            
-            if not reviews_batch:
-                 logger.info(f"No more reviews found for App ID {app_id} on page {page_num}. Backfill likely complete.")
-                 break # Exit loop if Steam returns empty batch
-            
-            batch_size = len(reviews_batch)
-            total_fetched_this_run += batch_size
-            logger.info(f"Fetched {batch_size} reviews from page {page_num}. Total fetched this run: {total_fetched_this_run}")
+        # === Call fetch_reviews ONCE to get all reviews ===
+        logger.info(f"Backfilling App {app_id} - Fetching all pages...")
+        # fetch_reviews returns (list[Review], latest_timestamp, next_cursor)
+        # We only need the list for backfill
+        reviews_batch, _, _ = steam_api.fetch_reviews(
+            appid=app_id,
+            language='all', 
+            after_timestamp=None # Ensure no timestamp filter is used
+        )
+
+        if not reviews_batch:
+             logger.info(f"No reviews found for App ID {app_id}. Backfill complete.")
+             # No need to update timestamp during backfill
+        else:
+            total_fetched_this_run = len(reviews_batch)
+            logger.info(f"Fetched {total_fetched_this_run} total reviews for App ID {app_id}.")
 
             # --- Insert into DB --- 
             reviews_to_insert = []
@@ -81,7 +69,6 @@ def backfill_app(app_id: int):
                     "english_translation": review_obj.review_text if is_english else None,
                     "translation_status": 'not_required' if is_english else 'pending',
                     "analysis_status": 'pending',
-                    # ... (copy all other relevant fields from main_fetcher) ...
                     "timestamp_created": review_obj.timestamp_created,
                     "timestamp_updated": review_obj.timestamp_updated,
                     "voted_up": review_obj.voted_up,
@@ -106,16 +93,8 @@ def backfill_app(app_id: int):
             if reviews_to_insert:
                 logger.info(f"Attempting to bulk insert/ignore {len(reviews_to_insert)} reviews...")
                 crud.add_reviews_bulk(db, reviews_to_insert)
-                # We don't know exact inserts vs ignores, but can log attempt
             
-            # Update cursor for next page
-            if not next_cursor:
-                 logger.info("No next cursor provided by Steam API. Ending backfill.")
-                 break
-            cursor = next_cursor
-
-            # Add sleep to be nice to Steam API during long backfill
-            time.sleep(2)
+            # --- No timestamp update needed for backfill --- 
 
     except Exception as e:
         logger.exception(f"An error occurred during backfill for app {app_id}: {e}")
@@ -128,7 +107,7 @@ def backfill_app(app_id: int):
         except Exception as e:
             logger.error(f"Error closing DB session: {e}")
     
-    logger.info(f"--- Finished Backfill for App ID: {app_id}. Total Fetched: {total_fetched_this_run} ---")
+    logger.info(f"--- Finished Backfill for App ID: {app_id}. Total Reviews Fetched: {total_fetched_this_run} ---")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill Steam reviews for a specific app ID.")
