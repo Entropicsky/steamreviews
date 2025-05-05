@@ -468,21 +468,30 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
             current_row_reviews_all = 2
 
             # Define column order, bringing Language Name near the start
+            # Add LLM analysis columns
             all_reviews_cols_order = [
                 'recommendationid', 'Language Name', 'voted_up', 'sentiment',
                 'original_review_text', 'english_translation',
                 'timestamp_created', 'timestamp_updated',
                 'votes_up', 'votes_funny', 'weighted_vote_score', 'comment_count',
+                # LLM Analysis Fields
+                'analysis_status', 'analyzed_sentiment',
+                'positive_themes', 'negative_themes', 'feature_requests', 'bug_reports',
+                'llm_analysis_model', 'llm_analysis_timestamp',
+                # Author Fields
                 'author_steamid', 'author_playtime_forever', 'author_playtime_at_review',
+                # Other Review Fields
                 'steam_purchase', 'received_for_free', 'written_during_early_access',
-                'developer_response', 'original_language' # Keep original code maybe?
+                'developer_response', 'original_language'
             ]
             reviews_df['sentiment'] = reviews_df['voted_up'].apply(lambda x: 'Positive' if x else 'Negative')
             reviews_df_cols = [col for col in all_reviews_cols_order if col in reviews_df.columns]
             all_reviews_df_ordered = reviews_df[reviews_df_cols].copy()
 
             # Make datetime columns timezone-naive for xlsxwriter
-            for dt_col in ['timestamp_created', 'timestamp_updated']:
+            # Include llm_analysis_timestamp here
+            datetime_cols_to_convert = ['timestamp_created', 'timestamp_updated', 'llm_analysis_timestamp']
+            for dt_col in datetime_cols_to_convert:
                  if dt_col in all_reviews_df_ordered.columns and pd.api.types.is_datetime64_any_dtype(all_reviews_df_ordered[dt_col]):
                      try:
                          if all_reviews_df_ordered[dt_col].dt.tz is not None:
@@ -499,15 +508,18 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                 worksheet_reviews_all.write(current_row_reviews_all, c_idx, value, fmt_header)
             
             # Apply specific formats (dates, text wrap)
-            for dt_col_name in ['timestamp_created', 'timestamp_updated']:
+            # Include llm_analysis_timestamp for date formatting
+            date_format_cols = ['timestamp_created', 'timestamp_updated', 'llm_analysis_timestamp']
+            for dt_col_name in date_format_cols:
                 if dt_col_name in all_reviews_df_ordered.columns:
                      dt_col_idx = all_reviews_df_ordered.columns.get_loc(dt_col_name)
                      if pd.api.types.is_datetime64_any_dtype(all_reviews_df_ordered[dt_col_name]):
                          worksheet_reviews_all.set_column(dt_col_idx, dt_col_idx, 20, fmt_date)
                      else:
                          worksheet_reviews_all.set_column(dt_col_idx, dt_col_idx, 20)
-            text_cols = ['original_review_text', 'english_translation', 'developer_response']
-            for txt_col_name in text_cols:
+            text_wrap_cols = ['original_review_text', 'english_translation', 'developer_response', 
+                              'positive_themes', 'negative_themes', 'feature_requests', 'bug_reports']
+            for txt_col_name in text_wrap_cols:
                 if txt_col_name in all_reviews_df_ordered.columns:
                     txt_col_idx = all_reviews_df_ordered.columns.get_loc(txt_col_name)
                     worksheet_reviews_all.set_column(txt_col_idx, txt_col_idx, 50, fmt_text_wrap)
@@ -543,21 +555,31 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                 current_row_reviews = 2
 
                 # --- Prepare and Write DataFrame ---
-                # (Using the same column order and datetime handling as before)
+                # Add LLM analysis columns to the order for individual sheets
                 review_cols_order = [
                     'recommendationid', 'voted_up', 'sentiment',
                     'original_review_text', 'english_translation',
                     'timestamp_created', 'timestamp_updated',
                     'votes_up', 'votes_funny', 'weighted_vote_score', 'comment_count',
+                    # LLM Analysis Fields
+                    'analysis_status', 'analyzed_sentiment',
+                    'positive_themes', 'negative_themes', 'feature_requests', 'bug_reports',
+                    'llm_analysis_model', 'llm_analysis_timestamp',
+                    # Author Fields
                     'author_steamid', 'author_playtime_forever', 'author_playtime_at_review',
+                     # Other Review Fields
                     'steam_purchase', 'received_for_free', 'written_during_early_access',
                     'developer_response'
+                    # 'original_language' is implicitly known for these sheets
                 ]
                 lang_df['sentiment'] = lang_df['voted_up'].apply(lambda x: 'Positive' if x else 'Negative')
                 lang_df_cols = [col for col in review_cols_order if col in lang_df.columns]
                 lang_df_ordered = lang_df[lang_df_cols].copy()
 
-                for dt_col in ['timestamp_created', 'timestamp_updated']:
+                # Convert datetime columns timezone-naive
+                # Include llm_analysis_timestamp here
+                datetime_cols_to_convert = ['timestamp_created', 'timestamp_updated', 'llm_analysis_timestamp']
+                for dt_col in datetime_cols_to_convert:
                     if dt_col in lang_df_ordered.columns and pd.api.types.is_datetime64_any_dtype(lang_df_ordered[dt_col]):
                         try:
                             if lang_df_ordered[dt_col].dt.tz is not None:
@@ -571,15 +593,21 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                 # --- Apply Formatting ---
                 for c_idx, value in enumerate(lang_df_ordered.columns.values):
                     worksheet_reviews.write(current_row_reviews, c_idx, value, fmt_header)
-                for dt_col_name in ['timestamp_created', 'timestamp_updated']:
+                
+                # Apply date formatting (include llm_analysis_timestamp)
+                date_format_cols = ['timestamp_created', 'timestamp_updated', 'llm_analysis_timestamp']
+                for dt_col_name in date_format_cols:
                     if dt_col_name in lang_df_ordered.columns:
                          dt_col_idx = lang_df_ordered.columns.get_loc(dt_col_name)
                          if pd.api.types.is_datetime64_any_dtype(lang_df_ordered[dt_col_name]):
                              worksheet_reviews.set_column(dt_col_idx, dt_col_idx, 20, fmt_date)
                          else:
                              worksheet_reviews.set_column(dt_col_idx, dt_col_idx, 20)
-                text_cols = ['original_review_text', 'english_translation', 'developer_response']
-                for txt_col_name in text_cols:
+                
+                # Apply text wrap (include LLM list columns)
+                text_wrap_cols = ['original_review_text', 'english_translation', 'developer_response', 
+                                  'positive_themes', 'negative_themes', 'feature_requests', 'bug_reports']
+                for txt_col_name in text_wrap_cols:
                     if txt_col_name in lang_df_ordered.columns:
                         txt_col_idx = lang_df_ordered.columns.get_loc(txt_col_name)
                         worksheet_reviews.set_column(txt_col_idx, txt_col_idx, 50, fmt_text_wrap)
