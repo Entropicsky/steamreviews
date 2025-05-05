@@ -10,7 +10,7 @@ from alembic import context
 
 # Remove explicit driver imports
 # import psycopg2 
-# from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects import postgresql
 
 # Remove manual sys.path manipulation - rely on execution context/PYTHONPATH
 # alembic_dir = os.path.dirname(__file__)
@@ -95,6 +95,15 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+    
+    # Explicitly access dialect before config engine creation
+    try:
+         _ = postgresql.psycopg2.dialect
+         logger.info("[Alembic] Explicitly accessed psycopg2 dialect class.")
+    except Exception as e:
+         logger.warning(f"[Alembic] Could not access dialect before config: {e}")
+         # Continue anyway, maybe engine_from_config will work
+
     # Use standard engine_from_config
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
