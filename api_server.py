@@ -47,6 +47,7 @@ async def trigger_generate_report(
     app_id: int = Query(..., description="Steam App ID for the report (e.g., 3228590)")
 ):
     """Triggers the generation of the Excel report, uploads it, and returns a pre-signed URL."""
+    logger.info(f"---> ENTERING /generate_report endpoint for App ID: {app_id}, Timespan: {timespan}")
     logger.info(f"Received GET request to generate report for App ID: {app_id}, Timespan: {timespan}")
     # app_id_to_use = PRIMARY_APP_ID # Removed - use app_id directly
 
