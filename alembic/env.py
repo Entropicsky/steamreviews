@@ -8,9 +8,10 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# Remove explicit driver imports
-# import psycopg2 
-from sqlalchemy.dialects import postgresql
+# Explicitly import the CORRECT DB driver (psycopg2)
+import psycopg2 
+# Remove dialect import
+# from sqlalchemy.dialects import postgresql
 
 # Remove manual sys.path manipulation - rely on execution context/PYTHONPATH
 # alembic_dir = os.path.dirname(__file__)
@@ -50,9 +51,9 @@ target_metadata = Base.metadata # Now use the imported Base
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-# Remove dotenv loading - rely on Heroku env vars
-# from dotenv import load_dotenv
-# load_dotenv(...) 
+# Load DATABASE_URL, no conversion needed
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 db_url = os.getenv('DATABASE_URL')
 if not db_url:
      # Use config object first, then env var as fallback
@@ -60,13 +61,7 @@ if not db_url:
      if not db_url:
         raise ValueError("DATABASE_URL not found in environment or alembic.ini")
 
-# Ensure URL uses postgresql:// scheme for psycopg2
-if db_url.startswith("postgresql+psycopg://"): # Correct if we accidentally left this from previous attempt
-    db_url = db_url.replace("postgresql+psycopg://", "postgresql://", 1)
-elif db_url.startswith("postgres://"): # Heroku default
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-# Update config with corrected URL if needed
+# Set the original URL in the config
 config.set_main_option('sqlalchemy.url', db_url)
 
 def run_migrations_offline() -> None:
@@ -96,14 +91,6 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     
-    # Explicitly access dialect before config engine creation
-    try:
-         _ = postgresql.psycopg2.dialect
-         logger.info("[Alembic] Explicitly accessed psycopg2 dialect class.")
-    except Exception as e:
-         logger.warning(f"[Alembic] Could not access dialect before config: {e}")
-         # Continue anyway, maybe engine_from_config will work
-
     # Use standard engine_from_config
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),

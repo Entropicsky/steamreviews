@@ -3,7 +3,7 @@ import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
-from sqlalchemy.dialects import postgresql # Import dialect
+# from sqlalchemy.dialects import postgresql # Not needed now
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,9 @@ else:
 
 # Create engine
 try:
-    # Explicitly access the dialect class *before* creating engine
-    # This might help SQLAlchemy register it in certain environments.
-    _ = postgresql.psycopg2.dialect
-    logger.info("[DB Connection] Explicitly accessed psycopg2 dialect class.")
-    
-    if ENGINE_URL: 
+    if ENGINE_URL:
         engine = create_engine(ENGINE_URL)
-        logger.info("[DB Connection] SQLAlchemy engine created using psycopg2.")
+        logger.info("[DB Connection] SQLAlchemy engine created (expecting psycopg2).")
     else:
          engine = None
          logger.error("[DB Connection] Could not determine valid ENGINE_URL.")
