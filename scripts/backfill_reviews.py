@@ -37,26 +37,29 @@ def backfill_app(app_id: int):
     db = next(db_session_gen)
     steam_api = SteamAPI()
     total_fetched_this_run = 0
+    page_num = 0
+    cursor = "*"
 
     try:
-        # === Call fetch_reviews ONCE to get all reviews ===
-        logger.info(f"Backfilling App {app_id} - Fetching all pages...")
-        # fetch_reviews returns (list[Review], latest_timestamp, next_cursor)
-        # We only need the list for backfill
-        reviews_batch, _, _ = steam_api.fetch_reviews(
-            appid=app_id,
-            language='all', 
-            after_timestamp=None # Ensure no timestamp filter is used
-        )
+        while True: 
+            page_num += 1
+            logger.info(f"Backfilling App {app_id} - Fetching page {page_num} with cursor: {cursor[:10]}...")
+            
+            reviews_batch, _, next_cursor = steam_api.fetch_reviews(
+                appid=app_id,
+                language='all', 
+                after_timestamp=None
+            )
+            
+            if not reviews_batch:
+                 logger.info(f"No more reviews found for App ID {app_id} on page {page_num}. Backfill likely complete.")
+                 break 
+            
+            batch_size = len(reviews_batch)
+            total_fetched_this_run += batch_size
+            logger.info(f"Fetched {batch_size} reviews from page {page_num}. Total fetched this run: {total_fetched_this_run}")
 
-        if not reviews_batch:
-             logger.info(f"No reviews found for App ID {app_id}. Backfill complete.")
-             # No need to update timestamp during backfill
-        else:
-            total_fetched_this_run = len(reviews_batch)
-            logger.info(f"Fetched {total_fetched_this_run} total reviews for App ID {app_id}.")
-
-            # --- Insert into DB --- 
+            # --- Process and Insert THIS BATCH --- 
             reviews_to_insert = []
             for review_obj in reviews_batch:
                  is_english = review_obj.language == 'english'
@@ -90,11 +93,19 @@ def backfill_app(app_id: int):
                  }
                  reviews_to_insert.append(insert_dict)
 
+            # Insert the current batch immediately
             if reviews_to_insert:
-                logger.info(f"Attempting to bulk insert/ignore {len(reviews_to_insert)} reviews...")
+                logger.info(f"Attempting to bulk insert/ignore {len(reviews_to_insert)} reviews for page {page_num}...")
                 crud.add_reviews_bulk(db, reviews_to_insert)
+            # --- End Batch Insertion --- 
             
-            # --- No timestamp update needed for backfill --- 
+            # Update cursor for next page
+            if not next_cursor:
+                 logger.info("No next cursor provided by Steam API. Ending backfill.")
+                 break
+            cursor = next_cursor
+
+            time.sleep(2) # Keep the sleep between page fetches
 
     except Exception as e:
         logger.exception(f"An error occurred during backfill for app {app_id}: {e}")
