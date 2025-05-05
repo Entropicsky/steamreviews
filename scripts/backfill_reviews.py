@@ -95,8 +95,15 @@ def backfill_app(app_id: int):
 
             # Insert the current batch immediately
             if reviews_to_insert:
-                logger.info(f"Attempting to bulk insert/ignore {len(reviews_to_insert)} reviews for page {page_num}...")
-                crud.add_reviews_bulk(db, reviews_to_insert)
+                logger.info(f"--->>> Calling add_reviews_bulk for {len(reviews_to_insert)} reviews (Page {page_num}) <<<---")
+                try:
+                    crud.add_reviews_bulk(db, reviews_to_insert)
+                    logger.info(f"--->>> Finished add_reviews_bulk for page {page_num} successfully <<<---")
+                except Exception as insert_err:
+                     logger.error(f"--->>> EXCEPTION during add_reviews_bulk for page {page_num}: {insert_err} <<<---")
+                     # Decide whether to break or continue on insert error
+                     # Let's break for now to investigate
+                     raise # Re-raise the exception to stop the script
             # --- End Batch Insertion --- 
             
             # Update cursor for next page
