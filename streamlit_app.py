@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import io
 import logging
+import asyncio
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -110,11 +111,13 @@ if page == "Report Generator":
             start_datetime_utc = datetime.datetime.combine(selected_date, datetime.time.min, tzinfo=datetime.timezone.utc)
             start_timestamp = int(start_datetime_utc.timestamp())
             
-            logger.info(f"Calling report generator for app {selected_app_id} since timestamp {start_timestamp}")
+            logger.info(f"Calling async report generator for app {selected_app_id} since timestamp {start_timestamp}")
             
             try:
-                with st.spinner("Generating report... Fetching data, calling AI, building Excel file..."):
-                    report_bytes = generate_summary_report(selected_app_id, start_timestamp)
+                # Use a spinner while the async function runs
+                with st.spinner("Generating report... Fetching data, calling AI concurrently, building Excel file..."):
+                    # Run the async function using asyncio.run()
+                    report_bytes = asyncio.run(generate_summary_report(selected_app_id, start_timestamp))
                 
                 st.success("Report generated successfully!")
                 
@@ -129,7 +132,7 @@ if page == "Report Generator":
                 )
 
             except Exception as e:
-                logger.exception(f"Error during report generation triggered by Streamlit: {e}")
+                logger.exception(f"Error during async report generation triggered by Streamlit: {e}")
                 st.error(f"Failed to generate report: {e}")
                 # Optionally show more details if needed for debugging
                 # st.exception(e)

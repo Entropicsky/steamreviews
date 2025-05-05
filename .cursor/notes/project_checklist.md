@@ -104,12 +104,12 @@
     *   [ ] **Test:** Manually test full flow locally: select app/date, click generate, verify download works, test error conditions (no reviews, LLM error from reporting module).
 
 ### Phase 4: Heroku Deployment Preparation
-*   [ ] **4.1:** Create/update `Procfile` with `web` (Streamlit) and `worker` (pipeline script) commands.
-*   [ ] **4.2:** Verify all dependencies are correctly listed in `requirements.txt`.
-*   [ ] **4.3 (Manual):** Add Heroku Git remote.
-*   [ ] **4.4 (Manual):** Provision Heroku app, Heroku Postgres add-on, and Heroku Scheduler add-on.
-*   [ ] **4.5 (Manual):** Set Heroku Config Vars (`DATABASE_URL` from add-on, `OPENAI_API_KEY`, etc.).
-*   [ ] **4.6 (Manual):** Configure Heroku Scheduler to run `python -m src.main_fetcher` (and potentially translator/analyzer separately or via `run_pipeline.sh`) on a schedule.
+*   [x] **4.1:** Create/update `Procfile` with `web` (Streamlit) and `worker` (pipeline script) commands.
+*   [x] **4.2:** Verify all dependencies are correctly listed in `requirements.txt`.
+*   [x] **4.3 (Manual):** Add Heroku Git remote.
+*   [x] **4.4 (Manual):** Provision Heroku app, Heroku Postgres add-on, and Heroku Scheduler add-on.
+*   [x] **4.5 (Manual):** Set Heroku Config Vars (`DATABASE_URL` from add-on, `OPENAI_API_KEY`, etc.).
+*   [x] **4.6 (Manual):** Configure Heroku Scheduler to run `python -m src.main_fetcher` (and potentially translator/analyzer separately or via `run_pipeline.sh`) on a schedule.
 *   [ ] **4.7 (Deferred but Recommended):** Implement Alembic for DB migrations.
     *   [x] **1.3:** Create `runtime.txt` specifying Python version.
     *   [x] **1.4:** Initialize Alembic (`alembic init alembic`).
@@ -117,8 +117,8 @@
     *   [x] **1.6:** Configure `alembic/env.py` (import Base, set metadata).
     *   [x] **1.7:** Generate initial Alembic migration (`alembic revision --autogenerate`).
         *   [x] **Test:** Review generated migration script.
-*   [ ] **4.8 (Manual):** Deploy to Heroku (`git push heroku main`).
-    *   [ ] **Test:** Access the deployed Streamlit app, test report generation. Monitor Heroku logs for scheduler jobs and web app activity.
+*   [x] **4.8 (Manual):** Deploy to Heroku (`git push heroku main`).
+    *   [x] **Test:** Access the deployed Streamlit app, test report generation. Monitor Heroku logs for scheduler jobs and web app activity.
 
 ## Heroku Deployment Phase (V1)
 
@@ -148,11 +148,11 @@
     *   [x] **Test:** Run backfill script locally against a test app ID with few reviews, verify DB insertion.
 
 ### Phase 4: Heroku Setup & Deployment (Manual Steps Required)
-*   [ ] **4.1 (Manual):** Create Heroku app.
-*   [ ] **4.2 (Manual):** Add Heroku Postgres addon.
-*   [ ] **4.3 (Manual):** Add Heroku Scheduler addon.
-*   [ ] **4.4 (Manual):** Set Heroku Config Vars (API Keys, ensure DATABASE_URL is correct).
-*   [ ] **4.5 (Manual):** Add Heroku Git remote.
+*   [x] **4.1 (Manual):** Create Heroku app.
+*   [x] **4.2 (Manual):** Add Heroku Postgres addon.
+*   [x] **4.3 (Manual):** Add Heroku Scheduler addon.
+*   [x] **4.4 (Manual):** Set Heroku Config Vars (API Keys, ensure DATABASE_URL is correct).
+*   [x] **4.5 (Manual):** Add Heroku Git remote.
 *   [x] **4.6:** Commit all code changes to Git.
 *   [x] **4.7 (Manual):** Push code to Heroku (`git push heroku main`).
 *   [x] **4.8 (Manual):** Monitor build/release logs. Verify `alembic upgrade head` runs.
@@ -163,9 +163,9 @@
 *   [x] **5.2 (Manual):** Run backfill script on Heroku for Dead Zone Rogue (`heroku run ...`).
 *   [x] **5.3 (Manual):** Run backfill script on Heroku for Smite 2 (`heroku run ...`).
     *   [x] **Test:** Monitor backfill logs. Verify data populates Heroku DB.
-*   [ ] **5.4 (Manual):** Configure Heroku Scheduler job (`bash run_pipeline.sh` or similar, e.g., Hourly).
-    *   [ ] **Test:** Trigger scheduler job manually. Monitor logs. Verify DB updates (`last_fetched_timestamp`, new reviews, processing status changes).
-*   [ ] **5.5 (Manual):** Test deployed Streamlit app, including report generation.
+*   [x] **5.4 (Manual):** Configure Heroku Scheduler job (`bash run_pipeline.sh` or similar, e.g., Hourly).
+    *   [x] **Test:** Trigger scheduler job manually. Monitor logs. Verify DB updates (`last_fetched_timestamp`, new reviews, processing status changes).
+*   [x] **5.5 (Manual):** Test deployed Streamlit app, including report generation.
 
 ## Future Phases (Post-Deployment)
 - [ ] Explore Vector DB integration for semantic search/summarization
@@ -173,4 +173,19 @@
 - [ ] Performance optimizations for reporting
 - [ ] Add more sophisticated UI features
 - [ ] Implement unit tests deferred from backend phase
-- [ ] Comprehensive end-to-end testing with larger datasets 
+- [ ] Comprehensive end-to-end testing with larger datasets
+
+## Optimization Phase: Async Report Generation
+
+*   [ ] **1.1:** Verify/Implement async support in `src.openai_client` (`aget_llm_summary`).
+    *   [ ] **Test:** Add/Update unit tests for async OpenAI client method.
+*   [ ] **1.2:** Refactor `src.reporting.excel_generator.generate_summary_report` to `async def`.
+*   [ ] **1.3:** Implement gathering of async LLM call coroutines (per-language and overall).
+*   [ ] **1.4:** Implement concurrent execution using `asyncio.gather` with `return_exceptions=True`.
+*   [ ] **1.5:** Implement processing logic for `gather` results (handling exceptions and successful summaries).
+    *   [ ] **Test:** Add unit tests for `generate_summary_report` mocking client and testing `gather` results handling.
+*   [ ] **1.6:** Update `streamlit_app.py` button handler to use `asyncio.run()` to call the async report function.
+*   [ ] **1.7 (Testing):** Perform integration tests locally (measuring time, verifying output, testing LLM error handling).
+*   [ ] **1.8 (Testing):** Perform manual tests in Streamlit app locally (verify UI speed, output, error handling).
+*   [ ] **1.9 (Deploy):** Deploy changes to Heroku.
+*   [ ] **1.10 (Test):** Test functionality on deployed Heroku app. 
