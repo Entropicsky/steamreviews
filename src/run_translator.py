@@ -59,8 +59,9 @@ def _process_single_translation(review: models.Review, translator: Translator) -
     elif translation_result and translation_result.startswith("[REFUSAL"):
         status = 'skipped'
     
-    # Get a new DB session for this thread
-    thread_db: Session = SessionLocal()
+    # Get DB session using the dependency function with context manager
+    db_session_gen = get_db()
+    thread_db: Session = next(db_session_gen)
     try:
         crud.update_review_translation(
             db=thread_db,
@@ -75,7 +76,13 @@ def _process_single_translation(review: models.Review, translator: Translator) -
          logger.error(f"Thread DB update failed for review {recommendation_id}: {e}")
          return (recommendation_id, 'failed', str(e)) # Return fail status and error
     finally:
-        thread_db.close()
+        # Ensure the session from get_db is closed correctly
+        try:
+            next(db_session_gen)
+        except StopIteration:
+             pass # Expected if generator already yielded and finished
+        except Exception as close_err:
+              logger.error(f"Error closing DB session in thread for review {recommendation_id}: {close_err}")
 
 def process_translations():
     logger.info("Starting translation processing run (multi-threaded)...")
