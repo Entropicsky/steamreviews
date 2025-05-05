@@ -19,16 +19,16 @@ CACHE_DIR = os.getenv("CACHE_DIR", "data")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 class Translator:
-    """Handles translation of reviews using OpenAI's API."""
+    """Handles translation of reviews using OpenAI's API (Thread-safe cache handling)."""
 
     def __init__(self, app_id: str, model: str = OPENAI_MODEL):
-        """Initialize Translator for a specific app_id."""
+        """Initialize Translator. Loads cache once."""
         self.model = model
         self.app_id = app_id
-        # Use app_id in cache filename
-        # Note: Cache filename doesn't include language anymore, as cache key does.
         self.cache_file = os.path.join(CACHE_DIR, f"translations_{self.app_id}_cache.json")
+        # Load cache into memory during initialization
         self.translation_cache = self._load_cache()
+        logger.info(f"Translator initialized for app {app_id}. Cache size: {len(self.translation_cache)}")
 
     def _load_cache(self) -> Dict[str, str]:
         """Load translation cache from file."""
@@ -46,8 +46,9 @@ class Translator:
                 logger.warning(f"Translation cache loading failed for {self.cache_file}: {e}")
         return {}
 
-    def _save_cache(self) -> None:
-        """Save translation cache to file."""
+    def save_cache(self) -> None: # Make save public for explicit call
+        """Save the current in-memory translation cache to file."""
+        logger.info(f"Saving translation cache ({len(self.translation_cache)} items) to {self.cache_file}")
         try:
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(self.translation_cache, f, ensure_ascii=False, indent=2)
@@ -55,14 +56,14 @@ class Translator:
             logger.error(f"Failed to save translation cache {self.cache_file}: {e}")
 
     def translate_review_text(self, text: str, original_language_code: str) -> Optional[str]:
-        """Translates a single piece of text. Returns translated text or None on failure."""
+        """Translates text. Updates in-memory cache, does NOT save file here."""
         cache_key = f"{original_language_code}:{text}"
 
         if not text or not text.strip():
             logger.debug("Empty text provided for translation.")
             return "" # Return empty string for empty input
 
-        # Check cache first
+        # Check in-memory cache
         if cache_key in self.translation_cache:
             logger.debug(f"Using cached translation for key: {cache_key[:50]}...")
             return self.translation_cache[cache_key]
@@ -91,8 +92,9 @@ class Translator:
 
             if translated_text is not None and not translated_text.startswith("[REFUSAL"):
                 logger.debug(f"Successfully translated text from {language_name}.")
-                self.translation_cache[cache_key] = translated_text
-                self._save_cache() # Save cache after successful translation
+                # Update IN-MEMORY cache only
+                self.translation_cache[cache_key] = translated_text 
+                # DO NOT SAVE FILE HERE: self._save_cache()
                 return translated_text
             elif translated_text and translated_text.startswith("[REFUSAL"):
                  logger.warning(f"Translation refused for key {cache_key[:50]}...: {translated_text}")

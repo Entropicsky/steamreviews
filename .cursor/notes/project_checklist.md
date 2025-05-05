@@ -92,16 +92,16 @@
 ### Phase 3: Streamlit Application (`streamlit_app.py`)
 *   [x] **3.1:** Add `streamlit` and `gunicorn` to `requirements.txt`.
     *   [x] Run `pip install -r requirements.txt`.
-*   [x] **3.2:** Create `streamlit_app.py` in project root.
+*   [x] **3.2:** Create `src/frontend/app.py`.
 *   [x] **3.3:** Implement basic Streamlit layout (title).
 *   [x] **3.4:** Implement DB connection and fetching of tracked apps for dropdown.
-    *   [x] **Test:** Run `streamlit run streamlit_app.py` locally, verify dropdown populates.
+    *   [ ] **Test:** Run `streamlit run src/frontend/app.py` locally, verify dropdown populates.
 *   [x] **3.5:** Implement date input widget.
 *   [x] **3.6:** Implement "Generate Report" button and basic click handler.
 *   [x] **3.7:** Integrate `generate_summary_report` call within button handler (with spinner).
 *   [x] **3.8:** Implement download button logic using returned bytes.
 *   [x] **3.9:** Implement error display logic (`st.error`).
-    *   [x] **Test:** Manually test full flow locally: select app/date, click generate, verify download works, test error conditions (no reviews, LLM error from reporting module).
+    *   [ ] **Test:** Manually test full flow locally: select app/date, click generate, verify download works, test error conditions (no reviews, LLM error from reporting module).
 
 ### Phase 4: Heroku Deployment Preparation
 *   [ ] **4.1:** Create/update `Procfile` with `web` (Streamlit) and `worker` (pipeline script) commands.
@@ -153,16 +153,16 @@
 *   [ ] **4.3 (Manual):** Add Heroku Scheduler addon.
 *   [ ] **4.4 (Manual):** Set Heroku Config Vars (API Keys, ensure DATABASE_URL is correct).
 *   [ ] **4.5 (Manual):** Add Heroku Git remote.
-*   [ ] **4.6:** Commit all code changes to Git.
-*   [ ] **4.7 (Manual):** Push code to Heroku (`git push heroku main`).
-*   [ ] **4.8 (Manual):** Monitor build/release logs. Verify `alembic upgrade head` runs.
-    *   [ ] **Test:** Check Heroku Postgres schema matches models.
+*   [x] **4.6:** Commit all code changes to Git.
+*   [x] **4.7 (Manual):** Push code to Heroku (`git push heroku main`).
+*   [x] **4.8 (Manual):** Monitor build/release logs. Verify `alembic upgrade head` runs.
+    *   [x] **Test:** Check Heroku Postgres schema matches models.
 
 ### Phase 5: Production Backfill & Scheduling (Manual Steps Required)
-*   [ ] **5.1 (Manual):** Look up Smite 2 App ID.
-*   [ ] **5.2 (Manual):** Run backfill script on Heroku for Dead Zone Rogue (`heroku run ...`).
-*   [ ] **5.3 (Manual):** Run backfill script on Heroku for Smite 2 (`heroku run ...`).
-    *   [ ] **Test:** Monitor backfill logs. Verify data populates Heroku DB.
+*   [x] **5.1 (Manual):** Look up Smite 2 App ID.
+*   [x] **5.2 (Manual):** Run backfill script on Heroku for Dead Zone Rogue (`heroku run ...`).
+*   [x] **5.3 (Manual):** Run backfill script on Heroku for Smite 2 (`heroku run ...`).
+    *   [x] **Test:** Monitor backfill logs. Verify data populates Heroku DB.
 *   [ ] **5.4 (Manual):** Configure Heroku Scheduler job (`bash run_pipeline.sh` or similar, e.g., Hourly).
     *   [ ] **Test:** Trigger scheduler job manually. Monitor logs. Verify DB updates (`last_fetched_timestamp`, new reviews, processing status changes).
 *   [ ] **5.5 (Manual):** Test deployed Streamlit app, including report generation.

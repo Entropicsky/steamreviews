@@ -12,8 +12,6 @@ class TrackedApp(Base):
 
     app_id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=True)
-    # Store as BigInteger (Unix timestamp seconds)
-    last_fetched_timestamp = Column(BigInteger, nullable=True, default=0)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
 

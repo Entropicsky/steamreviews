@@ -56,14 +56,24 @@ def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                  logger.error(f"Error flattening author data in DataFrame: {e}")
 
         # --- Convert Timestamp Columns --- 
-        for col in ['timestamp_created', 'timestamp_updated', 'timestamp_dev_responded', 'author_last_played']:
+        timestamp_cols = ['timestamp_created', 'timestamp_updated', 'timestamp_dev_responded', 'author_last_played']
+        for col in timestamp_cols:
              if col in reviews_df.columns:
-                # Convert UNIX timestamp (seconds) to datetime objects
-                # errors='coerce' will turn invalid timestamps (like 0 or None) into NaT (Not a Time)
                 reviews_df[col] = pd.to_datetime(reviews_df[col], unit='s', errors='coerce', origin='unix')
                 # Optional: Convert to specific timezone if needed (e.g., UTC)
-                # reviews_df[col] = reviews_df[col].dt.tz_localize('UTC') 
-        logger.info("Converted timestamp columns to datetime objects.")
+                try:
+                    # Ensure it's timezone-aware (UTC)
+                    if reviews_df[col].dt.tz is None:
+                         reviews_df[col] = reviews_df[col].dt.tz_localize('UTC')
+                    else:
+                         reviews_df[col] = reviews_df[col].dt.tz_convert('UTC')
+                    # Now format as ISO string
+                    reviews_df[col] = reviews_df[col].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+                except Exception as fmt_err:
+                     logger.warning(f"Could not format datetime column {col} to string: {fmt_err}. Leaving as objects.")
+                     # Fallback: maybe convert NaT explicitly to empty string?
+                     # reviews_df[col] = reviews_df[col].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S %Z') if pd.notna(x) else '')
+        logger.info("Converted and formatted timestamp columns to strings.")
         # --- End Timestamp Conversion ---
 
         # Initialize Excel Writer
@@ -244,6 +254,7 @@ If a category has no relevant information in this batch, provide an empty list `
                 # Select only existing columns from the preferred order
                 lang_df_cols = [col for col in review_cols_order if col in lang_df.columns]
                 lang_df_ordered = lang_df[lang_df_cols]
+                # Timestamps are now strings, Excel will treat them as text
                 lang_df_ordered.to_excel(writer, sheet_name=reviews_sheet_name, index=False)
                 logger.info(f"Written sheets {summary_sheet_name} and {reviews_sheet_name}.")
                 # === End Step 2.7 ===
