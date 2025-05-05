@@ -51,7 +51,7 @@ target_metadata = Base.metadata # Now use the imported Base
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-# Load DATABASE_URL, no conversion needed
+# Load DATABASE_URL, ensure correct scheme for psycopg2
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 db_url = os.getenv('DATABASE_URL')
@@ -61,7 +61,13 @@ if not db_url:
      if not db_url:
         raise ValueError("DATABASE_URL not found in environment or alembic.ini")
 
-# Set the original URL in the config
+# Ensure URL uses postgresql:// scheme for psycopg2
+if db_url.startswith("postgresql+psycopg://"):
+    db_url = db_url.replace("postgresql+psycopg://", "postgresql://", 1)
+elif db_url.startswith("postgres://"): # Heroku default
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+# Update config with corrected URL
 config.set_main_option('sqlalchemy.url', db_url)
 
 def run_migrations_offline() -> None:

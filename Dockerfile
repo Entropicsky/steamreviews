@@ -1,5 +1,5 @@
 # Use an official Python runtime as a parent image
-FROM python:3.13
+FROM python:3.13-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -12,8 +12,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
-    libffi-dev \
-    libssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

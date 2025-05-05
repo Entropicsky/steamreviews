@@ -20,25 +20,24 @@ else:
     load_dotenv(override=True) # Fallback
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-ENGINE_URL = DATABASE_URL # Use original URL directly for psycopg2
-
-if not DATABASE_URL:
-    logger.error("DATABASE_URL environment variable not set. Exiting.")
+# Ensure URL uses postgresql:// scheme for psycopg2
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"): # Heroku default
+    ENGINE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 else:
-    # Use the original DATABASE_URL for logging/display if needed
-    logger.info(f"[DB Connection] Using DATABASE_URL: {DATABASE_URL}") # Log original URL
+    ENGINE_URL = DATABASE_URL # Use as-is otherwise
 
-# Create engine
-try:
-    if ENGINE_URL:
+if not ENGINE_URL:
+    logger.error("DATABASE_URL environment variable not set or invalid. Exiting.")
+    engine = None # Set engine to None
+else:
+    logger.info(f"[DB Connection] Using Engine URL: {ENGINE_URL}")
+    # Create engine
+    try:
         engine = create_engine(ENGINE_URL)
-        logger.info("[DB Connection] SQLAlchemy engine created (expecting psycopg2).")
-    else:
-         engine = None
-         logger.error("[DB Connection] Could not determine valid ENGINE_URL.")
-except Exception as e:
-    logger.error(f"[DB Connection] Failed to create SQLAlchemy engine: {e}")
-    engine = None
+        logger.info("[DB Connection] SQLAlchemy engine created using psycopg2.")
+    except Exception as e:
+        logger.error(f"[DB Connection] Failed to create SQLAlchemy engine: {e}")
+        engine = None
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
