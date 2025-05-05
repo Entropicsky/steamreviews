@@ -59,16 +59,6 @@ def add_tracked_app(db: Session, app_id: int, name: Optional[str] = None):
         logger.error(f"Error adding tracked app {app_id}: {e}")
         db.rollback()
 
-def update_last_fetch_time(db: Session, app_id: int, timestamp: int):
-    """Updates the last_fetched_timestamp for a specific app."""
-    try:
-        db.query(models.TrackedApp).filter(models.TrackedApp.app_id == app_id).update({'last_fetched_timestamp': timestamp})
-        db.commit()
-        logger.info(f"Updated last_fetched_timestamp for app_id {app_id} to {timestamp}")
-    except Exception as e:
-        logger.error(f"Error updating last_fetch_time for app {app_id}: {e}")
-        db.rollback()
-
 def add_reviews_bulk(db: Session, reviews_data: List[Dict[str, Any]]):
     """Adds multiple reviews to the database, ignoring conflicts on recommendationid."""
     if not reviews_data:
@@ -102,16 +92,27 @@ def get_reviews_needing_translation(db: Session, limit: int = 100) -> List[model
 
 # Example: Function to update a single review's translation
 def update_review_translation(db: Session, recommendation_id: int, translation: str, model: str, status: str):
+    logger.debug(f"CRUD: Attempting update for review {recommendation_id} with status {status}")
     try:
-        db.query(models.Review).filter(models.Review.recommendationid == recommendation_id).update({
+        update_values = {
             models.Review.english_translation: translation,
             models.Review.translation_model: model,
             models.Review.translation_status: status
-        })
+        }
+        logger.debug(f"CRUD: Update values: {update_values}")
+        
+        result = db.query(models.Review).filter(models.Review.recommendationid == recommendation_id).update(update_values)
+        logger.debug(f"CRUD: Update executed. Result rows matched: {result}")
+        
+        logger.debug(f"CRUD: Committing transaction for review {recommendation_id}...")
         db.commit()
+        logger.debug(f"CRUD: Commit successful for review {recommendation_id}.")
+
     except Exception as e:
-        logger.error(f"Error updating translation for review {recommendation_id}: {e}")
+        logger.error(f"CRUD: Error updating translation for review {recommendation_id}: {e}")
+        logger.debug(f"CRUD: Rolling back transaction for review {recommendation_id}...")
         db.rollback()
+        logger.debug(f"CRUD: Rollback complete for review {recommendation_id}.")
 
 # Example: Function to get reviews needing analysis
 def get_reviews_needing_analysis(db: Session, limit: int = 100) -> List[models.Review]:
