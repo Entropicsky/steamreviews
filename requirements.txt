@@ -6,7 +6,7 @@ pandas
 openpyxl
 pydantic
 SQLAlchemy>=2.0
-psycopg[binary]
+psycopg2-binary
 streamlit
 gunicorn
 alembic 

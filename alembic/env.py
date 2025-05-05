@@ -7,9 +7,9 @@ from sqlalchemy import create_engine
 
 from alembic import context
 
-# Explicitly import the NEW DB driver
-import psycopg
-# from sqlalchemy.dialects import postgresql # No longer needed
+# Explicitly import the CORRECT DB driver
+import psycopg2 
+# from sqlalchemy.dialects import postgresql # Not needed
 
 # This line makes sure src/ is in the path for imports
 # Get the directory of the alembic folder
@@ -48,20 +48,14 @@ target_metadata = Base.metadata # Now use the imported Base
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-# Ensure DATABASE_URL is loaded and CONVERTED for psycopg
+# Ensure DATABASE_URL is loaded (NO conversion needed for psycopg2)
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 db_url = os.getenv('DATABASE_URL')
 if not db_url:
      raise ValueError("DATABASE_URL not found in environment for Alembic env.py")
 
-# Convert URL for psycopg if necessary
-if db_url.startswith("postgres://"): 
-    db_url = db_url.replace("postgres://", "postgresql+psycopg://", 1)
-elif db_url.startswith("postgresql://"):
-     db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
-
-# Set the (potentially modified) URL in the config
+# Set the original URL in the config
 config.set_main_option('sqlalchemy.url', db_url)
 
 def run_migrations_offline() -> None:
@@ -89,9 +83,8 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode using the application's engine."""
-    
-    # Use engine_from_config which uses the adjusted URL from config
+    """Run migrations in 'online' mode."""
+    # Use engine_from_config, which uses the original URL from config
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
