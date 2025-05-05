@@ -105,12 +105,13 @@ def run_fetcher():
                     crud.add_reviews_bulk(db, reviews_to_insert)
                 # === End Step 3.3 ===
 
-                # === Step 3.4: Update last fetched timestamp ===
-                if highest_ts_in_run > last_fetch:
-                    logger.info(f"Updating last_fetched_timestamp for app {app.app_id} to {highest_ts_in_run}")
-                    crud.update_last_fetch_time(db, app.app_id, highest_ts_in_run)
-                else:
-                    logger.info(f"No newer reviews found, last_fetched_timestamp for app {app.app_id} remains {last_fetch}")
+                # === Step 3.4: Update last fetched timestamp -- REMOVED ===
+                # We now get the timestamp from MAX(review) at the start
+                # if highest_ts_in_run > last_fetch:
+                #     logger.info(f"Updating last_fetched_timestamp for app {app.app_id} to {highest_ts_in_run}")
+                #     # crud.update_last_fetch_time(db, app.app_id, highest_ts_in_run) # This function was removed
+                # else:
+                #     logger.info(f"No newer reviews found, last_fetched_timestamp for app {app.app_id} remains {last_fetch}")
                 # === End Step 3.4 ===
 
             except Exception as fetch_err:

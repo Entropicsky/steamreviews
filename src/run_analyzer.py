@@ -31,6 +31,9 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - [%(name)s] - %(message)s'
 )
+# Explicitly set level for the CRUD logger
+logging.getLogger('src.database.crud').setLevel(logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
