@@ -39,13 +39,14 @@ def backfill_app(app_id: int):
     total_fetched_this_run = 0
     page_num = 0
     cursor = "*"
+    overall_highest_ts = 0 # Track the highest timestamp seen across all pages
 
     try:
         while True: 
             page_num += 1
             logger.info(f"Backfilling App {app_id} - Fetching page {page_num} with cursor: {cursor[:10]}...")
             
-            reviews_batch, _, next_cursor = steam_api.fetch_reviews(
+            reviews_batch, highest_ts_in_batch, next_cursor = steam_api.fetch_reviews(
                 appid=app_id,
                 language='all',
                 after_timestamp=None,
@@ -56,6 +57,9 @@ def backfill_app(app_id: int):
                  logger.info(f"No more reviews found for App ID {app_id} on page {page_num}. Backfill likely complete.")
                  break 
             
+            # Update overall highest timestamp
+            overall_highest_ts = max(overall_highest_ts, highest_ts_in_batch)
+
             batch_size = len(reviews_batch)
             total_fetched_this_run += batch_size
             logger.info(f"Fetched {batch_size} reviews from page {page_num}. Total fetched this run: {total_fetched_this_run}")
@@ -114,6 +118,13 @@ def backfill_app(app_id: int):
             cursor = next_cursor
 
             time.sleep(2) # Keep the sleep between page fetches
+
+        # === After Loop: Update the Timestamp in DB ===
+        if total_fetched_this_run > 0 and overall_highest_ts > 0:
+             logger.info(f"Backfill complete for {app_id}. Updating last_fetched_timestamp to {overall_highest_ts}")
+             crud.update_last_fetch_time(db, app_id, overall_highest_ts)
+        else:
+             logger.info(f"Backfill for {app_id} finished, but no reviews were fetched or no valid timestamp found. Timestamp not updated.")
 
     except Exception as e:
         logger.exception(f"An error occurred during backfill for app {app_id}: {e}")
