@@ -3,25 +3,19 @@ description:
 globs: 
 alwaysApply: false
 ---
-# Steam Reviews Analysis Tool Overview
+# Project Overview Rule
 
-This project is a tool to analyze Steam game reviews, with a special focus on translating Chinese reviews to English using OpenAI's Responses API.
+This project analyzes Steam reviews.
 
-## Project Structure
-- `src/prototype.py`: Initial prototype for fetching and analyzing Chinese Steam reviews
-- Main modules:
-  - Data collection: Fetches reviews from Steam API
-  - Translation: Uses OpenAI to translate reviews
-  - Analysis: Summarizes trends and insights
-  - UI: Will be implemented with Streamlit
+## Core Components:
 
-## Key Components
-- Steam API integration for fetching reviews
-- OpenAI Responses API for translation and analysis
-- Caching mechanism for both reviews and translations
-- Analysis of review sentiment and key themes
+1.  **Backend Pipeline:** Fetches new reviews from Steam API, translates non-English text (via OpenAI), performs structured LLM analysis per review (sentiment, themes, bugs, features), and stores everything in PostgreSQL. Uses SQLAlchemy & Alembic.
+2.  **Streamlit Frontend:** Allows users to select tracked games, set a date range, and download generated Excel reports.
+3.  **Database:** PostgreSQL (local via Docker, production via Heroku addon).
+4.  **Scheduling:** Uses Heroku Scheduler (or local cron/script) to run the backend pipeline periodically.
 
-## Requirements
-- Python 3.8+
-- OpenAI API key stored in `.env` file
-- Dependencies listed in `requirements.txt`
+## Key Files:
+
+*   Specs: [.cursor/docs/backend_spec.md](mdc:.cursor/docs/backend_spec.md), [.cursor/docs/frontend_spec.md](mdc:.cursor/docs/frontend_spec.md), [.cursor/docs/heroku_spec.md](mdc:.cursor/docs/heroku_spec.md)
+*   Checklist: [.cursor/notes/project_checklist.md](mdc:.cursor/notes/project_checklist.md)
+*   Entry points: [run_pipeline.sh](mdc:run_pipeline.sh), [streamlit_app.py](mdc:streamlit_app.py)

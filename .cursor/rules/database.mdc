@@ -1,0 +1,15 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Database & Migrations Rule
+
+- **Database:** PostgreSQL
+- **ORM:** SQLAlchemy (Models defined in [src/database/models.py](mdc:src/database/models.py))
+- **Driver:** `psycopg` (specified in [requirements.txt](mdc:requirements.txt)). Requires connection URL scheme `postgresql+psycopg://`. Code in [src/database/connection.py](mdc:src/database/connection.py) handles conversion from `postgres://` (Heroku default) automatically.
+- **Migrations:** Alembic is used for schema management.
+    - Configuration: [alembic.ini](mdc:alembic.ini), [alembic/env.py](mdc:alembic/env.py)
+    - Migration scripts are in `alembic/versions/`.
+    - **Heroku Release Phase:** Automatic migration (`alembic upgrade head` in Procfile/heroku.yml `release` command) **failed** due to environment issues loading the DB driver. The current working solution is to disable the release command (`command: - true` in [heroku.yml](mdc:heroku.yml)) and apply migrations **manually** after deployment using `heroku run alembic upgrade head --app <app_name>`.
+- **Local DB:** Managed via Docker Compose ([docker-compose.yml](mdc:docker-compose.yml)). Connect using credentials/port defined there (defaults: `steam_user`/`steam_password` on `localhost:5433`, db `steam_reviews_db`).

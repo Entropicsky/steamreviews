@@ -1,0 +1,30 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Backend Pipeline Rule
+
+- **Orchestration:** The full pipeline is typically run via [run_pipeline.sh](mdc:run_pipeline.sh), which executes the following scripts in order:
+    1. `python -m src.main_fetcher`
+    2. `python -m src.run_translator`
+    3. `python -m src.run_analyzer`
+- **Fetching ([src/main_fetcher.py](mdc:src/main_fetcher.py)):**
+    - Reads active apps from `tracked_apps` table ([src/database/crud.py](mdc:src/database/crud.py)).
+    - Fetches *new* reviews since `last_fetched_timestamp` using `language='all'` via [src/steam_client.py](mdc:src/steam_client.py).
+    - Inserts raw reviews into `reviews` table (using `add_reviews_bulk`), setting initial `translation_status` and `analysis_status`.
+    - Updates `last_fetched_timestamp` for the app.
+- **Translation ([src/run_translator.py](mdc:src/run_translator.py)):**
+    - Queries DB for reviews with `translation_status='pending'`.
+    - Uses [src/processing/translator.py](mdc:src/processing/translator.py) to call OpenAI API for translation.
+    - Updates `english_translation` and `translation_status` fields in DB.
+    - Loops until all pending reviews are processed.
+- **Analysis ([src/run_analyzer.py](mdc:src/run_analyzer.py)):**
+    - Queries DB for reviews with `analysis_status='pending'` and suitable translation status ('translated' or 'not_required').
+    - Uses [src/processing/analyzer.py](mdc:src/processing/analyzer.py) to call OpenAI API for structured analysis (sentiment, themes, bugs, features) using a JSON prompt and Pydantic validation.
+    - Updates `analysis_status` and structured analysis fields (e.g., `analyzed_sentiment`, `positive_themes`) in DB.
+    - Loops until all pending reviews are processed.
+- **Backfilling ([scripts/backfill_reviews.py](mdc:scripts/backfill_reviews.py)):**
+    - Separate script to fetch *all* historical reviews for a given app ID (no timestamp filter).
+    - Uses pagination and inserts via `add_reviews_bulk`.
+    - Intended to be run manually (e.g., via `heroku run`) for initial data load.

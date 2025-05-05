@@ -1,0 +1,17 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Deployment Rule (Heroku)
+
+- **Platform:** Heroku
+- **Stack:** Container Stack (uses [Dockerfile](mdc:Dockerfile) and [heroku.yml](mdc:heroku.yml))
+- **Build:** Defined in `heroku.yml`, uses the root Dockerfile.
+- **Release Phase:** Command is disabled (`command: - true` in `heroku.yml`) due to issues running DB operations. Migrations must be run manually post-deploy (`heroku run alembic upgrade head ...`).
+- **Web Process:** Defined in `heroku.yml`, runs `gunicorn` with `streamlit_app.py`.
+- **Scheduled Jobs:** Uses Heroku Scheduler addon to run the backend pipeline (likely `bash run_pipeline.sh` or individual Python scripts).
+- **Configuration:** Uses Heroku Config Vars for secrets (`DATABASE_URL`, `OPENAI_API_KEY`). `DATABASE_URL` is automatically provided by the Postgres addon (`postgres://` scheme).
+- **Buildpacks:** Not directly used due to container stack, but requires `heroku/python` compatibility implicitly via Docker image.
+- **Dependencies:** Defined in [requirements.txt](mdc:requirements.txt).
+- **Python Version:** Defined in [Dockerfile](mdc:Dockerfile) (previously `.python-version`).
