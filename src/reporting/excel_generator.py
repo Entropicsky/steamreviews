@@ -55,6 +55,17 @@ def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
             except Exception as e:
                  logger.error(f"Error flattening author data in DataFrame: {e}")
 
+        # --- Convert Timestamp Columns --- 
+        for col in ['timestamp_created', 'timestamp_updated', 'timestamp_dev_responded', 'author_last_played']:
+             if col in reviews_df.columns:
+                # Convert UNIX timestamp (seconds) to datetime objects
+                # errors='coerce' will turn invalid timestamps (like 0 or None) into NaT (Not a Time)
+                reviews_df[col] = pd.to_datetime(reviews_df[col], unit='s', errors='coerce', origin='unix')
+                # Optional: Convert to specific timezone if needed (e.g., UTC)
+                # reviews_df[col] = reviews_df[col].dt.tz_localize('UTC') 
+        logger.info("Converted timestamp columns to datetime objects.")
+        # --- End Timestamp Conversion ---
+
         # Initialize Excel Writer
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             
