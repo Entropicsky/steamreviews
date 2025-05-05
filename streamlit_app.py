@@ -4,6 +4,7 @@ import datetime
 import io
 import logging
 from sqlalchemy.orm import Session
+from typing import List
 
 # Configure logging (optional but good for debugging)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
@@ -31,8 +32,10 @@ def get_app_list_for_dropdown():
     logger.info("Fetching tracked app list for dropdown...")
     db: Session = SessionLocal() # Use SessionLocal directly for caching
     try:
-        apps = crud.get_active_tracked_apps(db) # Only show active apps in report dropdown
-        app_dict = {app[1] if app[1] else f"AppID: {app[0]}": app[0] for app in apps}
+        # Now gets full TrackedApp objects
+        apps: List[models.TrackedApp] = crud.get_active_tracked_apps(db) 
+        # Extract name and app_id into the dictionary
+        app_dict = {app.name if app.name else f"AppID: {app.app_id}": app.app_id for app in apps}
         return app_dict
     finally:
         db.close()

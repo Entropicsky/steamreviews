@@ -9,15 +9,16 @@ from .connection import get_db # Use get_db for session management
 
 logger = logging.getLogger(__name__)
 
-def get_active_tracked_apps(db: Session) -> List[tuple[int, Optional[str]]]:
-    """Fetches app_id and name for all active tracked apps."""
+def get_active_tracked_apps(db: Session) -> List[models.TrackedApp]:
+    """Fetches all active tracked app objects from the database."""
     try:
-        return db.query(models.TrackedApp.app_id, models.TrackedApp.name)\
+        # Return the full TrackedApp object
+        return db.query(models.TrackedApp)\
                  .filter(models.TrackedApp.is_active == True)\
                  .order_by(models.TrackedApp.name)\
                  .all()
     except Exception as e:
-        logger.error(f"Error fetching tracked app list: {e}")
+        logger.error(f"Error fetching active tracked apps: {e}")
         return []
 
 def get_all_tracked_apps(db: Session) -> List[models.TrackedApp]:
