@@ -47,8 +47,9 @@ def backfill_app(app_id: int):
             
             reviews_batch, _, next_cursor = steam_api.fetch_reviews(
                 appid=app_id,
-                language='all', 
-                after_timestamp=None
+                language='all',
+                after_timestamp=None,
+                cursor=cursor
             )
             
             if not reviews_batch:

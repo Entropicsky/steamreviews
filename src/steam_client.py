@@ -32,8 +32,9 @@ class SteamAPI:
         all_reviews = simplified_reviews + traditional_reviews
         logger.info(f"Combined total: {len(all_reviews)} Chinese reviews")
         return all_reviews
-    def fetch_reviews(self, appid: str, language: str = "all", max_reviews: int = 100, after_timestamp: Optional[int] = None) -> tuple[List[Review], int, Optional[str]]:
+    def fetch_reviews(self, appid: str, language: str = "all", max_reviews: int = 100, after_timestamp: Optional[int] = None, cursor: str = "*") -> tuple[List[Review], int, Optional[str]]:
         """Fetch reviews from Steam API, optionally only those newer than a timestamp.
+           Accepts a starting cursor for pagination.
            Returns list of reviews, highest timestamp seen, and next cursor.
         """
         # ... (Cache check logic REMOVED as it doesn't work well with 'all' and incremental) ...
@@ -41,11 +42,11 @@ class SteamAPI:
         # Fetch from API
         base_url = f"https://store.steampowered.com/appreviews/{appid}"
         reviews = []
-        cursor = "*"
+        current_cursor = cursor # Use the passed-in cursor
         total_pages = 0
         latest_timestamp_in_batch = 0 # Renamed for clarity
         next_cursor = None # Initialize next_cursor
-        logger.info(f"Starting fetch for appid {appid}, lang '{language}'" + (f", after {after_timestamp}" if after_timestamp else " (Full Fetch Mode)"))
+        logger.info(f"Starting fetch for appid {appid}, lang '{language}', cursor '{current_cursor[:10]}...'" + (f", after {after_timestamp}" if after_timestamp else " (Full Fetch Mode)"))
 
         is_incremental_fetch = after_timestamp is not None
 
@@ -56,14 +57,14 @@ class SteamAPI:
             try:
                 params = {
                     'json': 1,
-                    'cursor': cursor,
+                    'cursor': current_cursor, # Use the loop's current cursor
                     'num_per_page': batch_size,
                     'review_type': 'all',
                     'language': language, # Pass the requested language ('all' or specific)
                     'purchase_type': 'all',
                     'filter': 'recent',
                 }
-                logger.info(f"Fetching page {total_pages + 1} of {language} reviews with cursor: {cursor}")
+                logger.info(f"Fetching page {total_pages + 1} using cursor: {current_cursor}")
                 response = requests.get(base_url, params=params, headers=self.headers, timeout=15) # Increased timeout slightly
                 if response.status_code != 200:
                     logger.error(f"Steam API error: {response.status_code} - {response.text}")
@@ -119,7 +120,7 @@ class SteamAPI:
                 if not is_incremental_fetch:
                      break # If backfilling (no timestamp), only fetch ONE page per call
                 
-                cursor = next_cursor # Otherwise, update cursor for next incremental page
+                current_cursor = next_cursor # Update cursor for the *next* iteration of the INTERNAL loop if incremental
                 total_pages += 1
                 time.sleep(1.5) # Slightly longer sleep
 
