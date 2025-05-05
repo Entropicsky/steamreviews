@@ -129,22 +129,39 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
             except Exception as e:
                  logger.error(f"[Async] Error flattening author data in DataFrame: {e}")
 
-        # Timestamp conversion (remains synchronous)
+        # --- Timestamp processing (Handle potential errors) ---
         timestamp_cols = ['timestamp_created', 'timestamp_updated', 'timestamp_dev_responded', 'author_last_played']
         for col in timestamp_cols:
             if col in reviews_df.columns:
-                reviews_df[col] = pd.to_datetime(reviews_df[col], unit='s', errors='coerce', origin='unix')
-                try:
-                    if reviews_df[col].dt.tz is None:
-                        reviews_df[col] = reviews_df[col].dt.tz_localize('UTC')
-                    else:
-                        reviews_df[col] = reviews_df[col].dt.tz_convert('UTC')
-                    # Keep as datetime objects for potential Excel formatting, convert to string if needed later
-                    # reviews_df[col] = reviews_df[col].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-                except Exception as fmt_err:
-                    logger.warning(f"[Async] Could not process datetime column {col}: {fmt_err}. Leaving as objects.")
-        logger.info("[Async] Processed timestamp columns.")
-
+                converted_timestamps = []
+                for timestamp in reviews_df[col]:
+                    try:
+                        # Attempt conversion for each timestamp individually
+                        if pd.isna(timestamp):
+                             converted_timestamps.append(pd.NaT) # Handle existing NaNs
+                             continue
+                        # Convert valid numbers
+                        dt_obj = pd.to_datetime(timestamp, unit='s', errors='raise', origin='unix')
+                        # Attempt to localize to UTC
+                        if dt_obj.tz is None:
+                            dt_obj = dt_obj.tz_localize('UTC')
+                        else:
+                            dt_obj = dt_obj.tz_convert('UTC')
+                        converted_timestamps.append(dt_obj)
+                    except (OverflowError, ValueError, FloatingPointError) as e:
+                        # Catch specific numerical/conversion errors
+                        logger.warning(f"[Timestamp Conversion] Error converting timestamp '{timestamp}' in column '{col}': {e}. Setting to NaT.")
+                        converted_timestamps.append(pd.NaT) # Set to Not a Time on error
+                    except Exception as e:
+                        # Catch any other unexpected errors during conversion/localization
+                        logger.error(f"[Timestamp Conversion] Unexpected error converting timestamp '{timestamp}' in column '{col}': {e}. Setting to NaT.")
+                        converted_timestamps.append(pd.NaT)
+                
+                # Assign the list of converted timestamps back to the DataFrame column
+                reviews_df[col] = pd.Series(converted_timestamps, index=reviews_df.index, dtype='datetime64[ns, UTC]')
+                logger.info(f"[Async] Processed timestamp column '{col}' with individual error handling.")
+            # else: Column not present, skip
+        
         # Add Language Name column to main DataFrame for the All Reviews sheet
         reviews_df['Language Name'] = reviews_df['original_language'].map(lambda x: LANGUAGE_MAP.get(x, x))
 
