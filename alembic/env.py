@@ -3,30 +3,32 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-from sqlalchemy import create_engine
+# Remove direct create_engine import if not needed
+# from sqlalchemy import create_engine 
 
 from alembic import context
 
-# Explicitly import the CORRECT DB driver
-import psycopg2 
-# from sqlalchemy.dialects import postgresql # Not needed
+# Remove explicit driver imports
+# import psycopg2 
+# from sqlalchemy.dialects import postgresql
 
-# This line makes sure src/ is in the path for imports
-# Get the directory of the alembic folder
-alembic_dir = os.path.dirname(__file__)
-# Construct the path to the project root (one level up)
-project_root = os.path.abspath(os.path.join(alembic_dir, '..'))
-# Construct the path to the src directory
-src_path = os.path.join(project_root, 'src')
-# Insert the project root into sys.path to allow 'from src.'
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+# Remove manual sys.path manipulation - rely on execution context/PYTHONPATH
+# alembic_dir = os.path.dirname(__file__)
+# project_root = os.path.abspath(os.path.join(alembic_dir, '..'))
+# src_path = os.path.join(project_root, 'src')
+# if project_root not in sys.path:
+#     sys.path.insert(0, project_root)
 
-# Import Base from your models file first to ensure models are registered
-from src.database.models import Base
-
-# Import the engine directly from our connection module
-from src.database.connection import engine as application_engine 
+# Import Base - Ensure this path works relative to where alembic is run
+# If run from root with -m, this might need adjustment, but let's try first.
+# Assuming PYTHONPATH or execution context handles finding 'src'
+try:
+    from src.database.models import Base 
+except ImportError:
+     # Fallback if src isn't found directly (e.g., path issue)
+     # This might indicate a deeper problem needing PYTHONPATH adjustment
+     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+     from src.database.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -48,14 +50,23 @@ target_metadata = Base.metadata # Now use the imported Base
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-# Ensure DATABASE_URL is loaded (NO conversion needed for psycopg2)
-from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+# Remove dotenv loading - rely on Heroku env vars
+# from dotenv import load_dotenv
+# load_dotenv(...) 
 db_url = os.getenv('DATABASE_URL')
 if not db_url:
-     raise ValueError("DATABASE_URL not found in environment for Alembic env.py")
+     # Use config object first, then env var as fallback
+     db_url = config.get_main_option("sqlalchemy.url")
+     if not db_url:
+        raise ValueError("DATABASE_URL not found in environment or alembic.ini")
 
-# Set the original URL in the config
+# Ensure URL uses postgresql:// scheme for psycopg2
+if db_url.startswith("postgresql+psycopg://"): # Correct if we accidentally left this from previous attempt
+    db_url = db_url.replace("postgresql+psycopg://", "postgresql://", 1)
+elif db_url.startswith("postgres://"): # Heroku default
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+# Update config with corrected URL if needed
 config.set_main_option('sqlalchemy.url', db_url)
 
 def run_migrations_offline() -> None:
@@ -84,7 +95,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    # Use engine_from_config, which uses the original URL from config
+    # Use standard engine_from_config
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
