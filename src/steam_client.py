@@ -45,7 +45,9 @@ class SteamAPI:
         total_pages = 0
         latest_timestamp_in_batch = 0 # Renamed for clarity
         next_cursor = None # Initialize next_cursor
-        logger.info(f"Starting fetch for appid {appid}, lang '{language}'" + (f", after {after_timestamp}" if after_timestamp else ""))
+        logger.info(f"Starting fetch for appid {appid}, lang '{language}'" + (f", after {after_timestamp}" if after_timestamp else " (Full Fetch Mode)"))
+
+        is_incremental_fetch = after_timestamp is not None
 
         while True:
             batch_size = 100 # Always fetch 100 per page for incremental
@@ -94,7 +96,7 @@ class SteamAPI:
                     current_batch_latest_ts = max(current_batch_latest_ts, review_timestamp)
 
                     # Check timestamp cutoff
-                    if after_timestamp and review_timestamp <= after_timestamp:
+                    if is_incremental_fetch and review_timestamp <= after_timestamp:
                         logger.info(f"Reached timestamp cutoff ({review_timestamp} <= {after_timestamp}). Stopping fetch.")
                         stop_fetching = True
                         break # Stop processing this batch
@@ -106,18 +108,18 @@ class SteamAPI:
                 # Update overall list and latest timestamp
                 reviews.extend(new_reviews_in_batch)
                 latest_timestamp_in_batch = max(latest_timestamp_in_batch, current_batch_latest_ts)
-                logger.info(f"Processed {len(new_reviews_in_batch)} new reviews from batch, total fetched this run: {len(reviews)}")
+                logger.info(f"Processed {len(new_reviews_in_batch)} new reviews from page {total_pages + 1}. Total this run: {len(reviews)}")
 
-                # Check if we should stop after processing the batch
-                if stop_fetching:
+                # === Loop Control ===
+                if stop_fetching: # Stop if timestamp cutoff reached
                     break
-
-                # If Steam didn't provide a next cursor, stop pagination
-                if not next_cursor:
-                    logger.info("No next cursor provided by Steam API. Ending pagination.")
+                if not next_cursor: # Stop if Steam provides no more cursor
                     break
+                # *** IMPORTANT: Only continue looping if it's an incremental fetch ***
+                if not is_incremental_fetch:
+                     break # If backfilling (no timestamp), only fetch ONE page per call
                 
-                cursor = next_cursor # Use the new cursor for the next iteration
+                cursor = next_cursor # Otherwise, update cursor for next incremental page
                 total_pages += 1
                 time.sleep(1.5) # Slightly longer sleep
 
