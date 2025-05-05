@@ -21,7 +21,7 @@ from constants import LANGUAGE_MAP # Import from constants
 
 logger = logging.getLogger(__name__)
 
-# --- Helper Async Function for Single Summary --- 
+# --- Helper Async Function for Single Summary ---
 async def _generate_single_summary(
     input_text: str,
     context_description: str, # e.g., "language English", "overall"
@@ -44,7 +44,8 @@ async def _generate_single_summary(
             "role": "system",
             "content": f"""You are an expert game analyst. Summarize the key points from the following batch of Steam reviews, derived from {context_description}.
 Focus on overall sentiment, common positive/negative themes, feature requests, and bug reports identified within THIS BATCH of reviews.
-**IMPORTANT: Respond *only* with a valid JSON object adhering strictly to the following JSON schema. Do not include any text outside the JSON object:**
+**IMPORTANT: Respond *only* with a valid JSON object adhering strictly to the following JSON schema. Do not include any text outside the JSON object.**
+**IMPORTANT: All textual summaries within the JSON response (like themes, requests, sentiment descriptions) MUST be in English, regardless of the input review language.**
 ```json
 {schema_string}
 ```
@@ -96,7 +97,7 @@ If a category has no relevant information in this batch, provide an empty list `
 
 # --- Main Report Generation Function (Now Async) ---
 async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
-    """Generates the Excel summary report asynchronously."""
+    """Generates the Excel summary report asynchronously with consolidated summary and styling."""
     logger.info(f"[Async] Generating summary report for app {app_id} since timestamp {start_timestamp}")
     output = io.BytesIO()
     db_session_gen = get_db()
@@ -109,7 +110,8 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
 
         if not reviews:
             logger.warning(f"[Async] No reviews found for app {app_id} since {start_timestamp}. Returning empty report.")
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Use xlsxwriter even for the empty report for consistency
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 pd.DataFrame([{"Status": f"No reviews found for App ID {app_id} since timestamp {start_timestamp}"}]).to_excel(writer, sheet_name="Status", index=False)
             output.seek(0)
             return output.getvalue()
@@ -137,14 +139,18 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                         reviews_df[col] = reviews_df[col].dt.tz_localize('UTC')
                     else:
                         reviews_df[col] = reviews_df[col].dt.tz_convert('UTC')
-                    reviews_df[col] = reviews_df[col].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+                    # Keep as datetime objects for potential Excel formatting, convert to string if needed later
+                    # reviews_df[col] = reviews_df[col].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
                 except Exception as fmt_err:
-                    logger.warning(f"[Async] Could not format datetime column {col} to string: {fmt_err}. Leaving as objects.")
-        logger.info("[Async] Converted and formatted timestamp columns to strings.")
+                    logger.warning(f"[Async] Could not process datetime column {col}: {fmt_err}. Leaving as objects.")
+        logger.info("[Async] Processed timestamp columns.")
+
+        # Add Language Name column to main DataFrame for the All Reviews sheet
+        reviews_df['Language Name'] = reviews_df['original_language'].map(lambda x: LANGUAGE_MAP.get(x, x))
 
         # --- Step 2: Prepare and Run LLM Tasks Concurrently (Async) ---
         tasks = []
-        language_data_map = {} # Store DFs and inputs temporarily
+        language_data_map = {} # Store DFs AND results temporarily
 
         # Prepare JSON schema once
         try:
@@ -159,21 +165,30 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
         for lang_code in distinct_languages:
             lang_name = LANGUAGE_MAP.get(lang_code, lang_code)
             lang_df = reviews_df[reviews_df['original_language'] == lang_code].copy()
+            language_data_map[lang_code] = {'df': lang_df}
+            
             if lang_df.empty:
                 logger.warning(f"[Async] Skipping language {lang_code}, no reviews found after filtering.")
-                language_data_map[lang_code] = {'df': lang_df, 'summary_result': {"error": "No reviews for this language."}}
+                language_data_map[lang_code]['summary_result'] = {"error": "No reviews for this language."}
                 continue
 
             texts_for_summary = []
             for _, row in lang_df.iterrows():
-                text = row.get('english_translation')
-                if text and isinstance(text, str) and not text.startswith('[Translation') and not text.startswith('[REFUSAL'):
-                    texts_for_summary.append(f"Review (ID: {row.get('recommendationid')}): {text}")
-                elif row.get('original_language') == 'english' and row.get('original_review_text'):
-                    texts_for_summary.append(f"Review (ID: {row.get('recommendationid')}): {row.get('original_review_text')}")
+                # Try English translation first
+                text_to_use = row.get('english_translation')
+                is_translation_valid = text_to_use and isinstance(text_to_use, str) and not text_to_use.startswith('[Translation') and not text_to_use.startswith('[REFUSAL')
+                
+                if is_translation_valid:
+                    texts_for_summary.append(f"Review (ID: {row.get('recommendationid')}): {text_to_use}")
+                else:
+                    # Fallback to original text if translation invalid or missing
+                    original_text = row.get('original_review_text')
+                    if original_text and isinstance(original_text, str):
+                        texts_for_summary.append(f"Review (ID: {row.get('recommendationid')}): {original_text}")
+                    # else: log warning maybe? Review has no usable text.
 
             lang_summary_input_text = "\n---\n".join(texts_for_summary[:200])
-            language_data_map[lang_code] = {'df': lang_df} # Store df for later writing
+            language_data_map[lang_code]['task_index'] = len(tasks) - 1 # Map lang to its task index
 
             if lang_summary_input_text.strip():
                 task = _generate_single_summary(
@@ -184,7 +199,6 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                     max_tokens=1500
                 )
                 tasks.append(task)
-                language_data_map[lang_code]['task_index'] = len(tasks) - 1 # Map lang to its task index
             else:
                  logger.warning(f"[Async] No text for {lang_name} summary task.")
                  language_data_map[lang_code]['summary_result'] = {"error": f"No valid text input for summary ({lang_name})."}
@@ -251,156 +265,266 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
              if overall_task_index == -1 and overall_summary_result is None:
                  overall_summary_result = {"error": "No summary tasks run."}
 
-        # --- Step 4: Write Excel File (Sync) ---
-        logger.info("[Async] Writing results to Excel...")
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # --- Step 4: Write Excel File (Sync using xlsxwriter) ---
+        logger.info("[Async] Writing results to Excel with new consolidated structure...")
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            workbook = writer.book
 
-            # --- Step 4.1: Write Overall Summary Sheet FIRST ---
-            logger.info("[Async] Writing Overall Summary sheet...")
-            overall_summary_sheet_name = "Summary_Overall"
-            current_row_overall = 0
+            # --- Define Formats (Adding valign: top where needed) ---
+            fmt_sheet_title = workbook.add_format({'bold': True, 'font_size': 14, 'align': 'left', 'valign': 'top'})
+            fmt_section_title = workbook.add_format({'bold': True, 'font_size': 12, 'bottom': 1, 'valign': 'top'})
+            fmt_header = workbook.add_format({'bold': True, 'bg_color': '#DDEBF7', 'border': 1, 'align': 'center', 'valign': 'top', 'text_wrap': True})
+            fmt_header_left = workbook.add_format({'bold': True, 'bg_color': '#DDEBF7', 'border': 1, 'align': 'left', 'valign': 'top'})
+            fmt_percent = workbook.add_format({'num_format': '0.0%', 'border': 1, 'align': 'right', 'valign': 'top'})
+            fmt_number = workbook.add_format({'num_format': '#,##0', 'border': 1, 'align': 'right', 'valign': 'top'})
+            fmt_text_wrap = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
+            fmt_text_left_border = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'top'})
+            fmt_date = workbook.add_format({'num_format': 'yyyy-mm-dd hh:mm:ss', 'align': 'left', 'valign': 'top'})
+            fmt_error = workbook.add_format({'font_color': 'red', 'valign': 'top'})
+            fmt_bold = workbook.add_format({'bold': True, 'valign': 'top'})
+            fmt_default_border = workbook.add_format({'border': 1, 'valign': 'top'})
 
-            overall_total = len(reviews_df)
-            overall_pos = len(reviews_df[reviews_df['voted_up'] == True]) if overall_total > 0 else 0
-            overall_neg = overall_total - overall_pos
-            overall_pos_pct = (overall_pos / overall_total) * 100 if overall_total > 0 else 0
+            # Helper function to adjust column widths
+            def adjust_column_widths(df, worksheet, offset=0):
+                for idx, col in enumerate(df.columns):
+                    series = df[col]
+                    # Header length
+                    header_len = len(str(series.name))
+                    # Max content length (handle potential NAs)
+                    content_len = series.astype(str).map(len).max()
+                    if pd.isna(content_len):
+                        content_len = 0
+                    
+                    max_len = max(header_len, int(content_len)) + 1
+                    # Clamp max width
+                    max_len = min(max_len, 60)
+                    worksheet.set_column(idx + offset, idx + offset, max_len)
+            
+            # Helper function to write AI analysis data (lists or strings)
+            def write_analysis_cell(worksheet, row, col, data, cell_format):
+                 if isinstance(data, list) and data:
+                     # Join list items with newline for multiline cell
+                     worksheet.write_string(row, col, '\n'.join(map(str, data)), cell_format)
+                 elif data and not isinstance(data, list):
+                     worksheet.write_string(row, col, str(data), cell_format)
+                 else:
+                     worksheet.write_string(row, col, '-', cell_format) # Placeholder for empty/null
 
-            # Calculate language counts *before* defining the overall_stats_data
-            lang_counts = {
-                lang: len(data.get('df', pd.DataFrame()))
-                for lang, data in language_data_map.items()
-            }
+            # --- Step 4.1: Prepare Data for Consolidated Summary Sheet ---
+            summary_data_list = []
+            lang_counts = {} # Recalculate counts for sorting
+            lang_pos_counts = {}
+            lang_neg_counts = {}
 
-            overall_stats_data = {
-                'Metric': [
-                    'Total Reviews Analyzed',
-                    'Positive Reviews',
-                    'Negative Reviews',
-                    'Positive Percentage'
-                # Get language names based on original distinct_languages order for the stats table
-                ] + [f"{LANGUAGE_MAP.get(lang, lang)} Count" for lang in distinct_languages],
-                'Value': [
-                    overall_total,
-                    overall_pos,
-                    overall_neg,
-                    f"{overall_pos_pct:.1f}%"
-                # Use the calculated counts based on original distinct_languages order
-                ] + [lang_counts.get(lang, 0) for lang in distinct_languages]
-            }
-            overall_stats_df = pd.DataFrame(overall_stats_data)
-            overall_stats_df.to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, startrow=current_row_overall)
-            current_row_overall += len(overall_stats_df) + 2
-
-            # Write the AI analysis part for Overall Summary
-            if isinstance(overall_summary_result, dict):
-                if 'error' in overall_summary_result:
-                    pd.DataFrame([overall_summary_result.get('error')], columns=['Analysis Error']).to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, startrow=current_row_overall)
-                    current_row_overall += 2
-                    if 'raw_response' in overall_summary_result:
-                         pd.DataFrame([overall_summary_result['raw_response']], columns=['Raw AI Response']).to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, startrow=current_row_overall)
-                    elif 'refusal_message' in overall_summary_result:
-                         pd.DataFrame([overall_summary_result['refusal_message']], columns=['Refusal Message']).to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, startrow=current_row_overall)
-                else:
-                    for key, value in overall_summary_result.items():
-                        section_title = key.replace('_', ' ').title()
-                        pd.DataFrame([section_title], columns=['Analysis Section']).to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, header=False, startrow=current_row_overall)
-                        current_row_overall += 1
-                        if isinstance(value, list):
-                            pd.DataFrame(value, columns=['Details']).to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, header=False, startrow=current_row_overall)
-                            current_row_overall += len(value) if value else 1
-                        elif value is not None:
-                            pd.DataFrame([str(value)], columns=['Details']).to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, header=False, startrow=current_row_overall)
-                            current_row_overall += 1
-                        else:
-                             current_row_overall += 1
-                        current_row_overall += 1
-            else:
-                pd.DataFrame(["Overall analysis data invalid or task failed"], columns=['Status']).to_excel(writer, sheet_name=overall_summary_sheet_name, index=False, startrow=current_row_overall)
-            logger.info(f"[Async] Written sheet {overall_summary_sheet_name}.")
-
-
-            # --- Step 4.2: Sort Languages by Review Count ---
-            # Use the lang_counts calculated earlier
-            sorted_lang_codes = sorted(lang_counts.keys(), key=lambda lang: lang_counts[lang], reverse=True)
-            logger.info(f"[Async] Languages sorted by review count (desc): {sorted_lang_codes}")
-
-            # --- Step 4.3: Write Per-Language Sheets (Sorted) ---
-            for lang_code in sorted_lang_codes: # Iterate through sorted list
-                # Retrieve the data for this language
-                data = language_data_map.get(lang_code)
-                if not data:
-                    logger.warning(f"[Async] Could not find data for language {lang_code} during sorted writing, skipping.")
-                    continue # Should not happen if lang_counts was populated correctly
+            # Process individual languages first
+            for lang_code, data in language_data_map.items():
+                df = data.get('df')
+                count = len(df) if df is not None else 0
+                lang_counts[lang_code] = count
+                pos = 0
+                neg = 0
+                if count > 0 and df is not None:
+                    pos = len(df[df['voted_up'] == True])
+                    neg = count - pos
+                lang_pos_counts[lang_code] = pos
+                lang_neg_counts[lang_code] = neg
+                pct = (pos / count) * 100.0 if count > 0 else 0.0
+                
+                ai_summary = data.get('summary_result', {})
+                if not isinstance(ai_summary, dict):
+                     ai_summary = {"error": "Invalid AI summary format received."}
 
                 lang_name = LANGUAGE_MAP.get(lang_code, lang_code)
+                summary_data_list.append({
+                    'Language': lang_name,
+                    'Negative Reviews': neg,
+                    'Positive Reviews': pos,
+                    'Total Reviews': count,
+                    '% Positive': pct / 100.0, # Store as float
+                    'Analyzed Sentiment': ai_summary.get('analyzed_sentiment'),
+                    'Positive Themes': ai_summary.get('positive_themes'),
+                    'Negative Themes': ai_summary.get('negative_themes'),
+                    'Feature Requests': ai_summary.get('feature_requests'),
+                    'Bug Reports': ai_summary.get('bug_reports'),
+                    '_sort_key': count # Add temporary key for sorting
+                })
+
+            # Sort languages by review count (descending)
+            sorted_summary_data = sorted(summary_data_list, key=lambda x: x['_sort_key'], reverse=True)
+
+            # Prepare "Total / All" row data
+            overall_total = sum(lang_counts.values())
+            overall_pos = sum(lang_pos_counts.values())
+            overall_neg = sum(lang_neg_counts.values())
+            overall_pct = (overall_pos / overall_total) * 100.0 if overall_total > 0 else 0.0
+            ai_summary_overall = overall_summary_result if isinstance(overall_summary_result, dict) else {"error": "Invalid AI summary format."}
+
+            total_row_data = {
+                'Language': 'Total / All',
+                'Negative Reviews': overall_neg,
+                'Positive Reviews': overall_pos,
+                'Total Reviews': overall_total,
+                '% Positive': overall_pct / 100.0,
+                'Analyzed Sentiment': ai_summary_overall.get('analyzed_sentiment'),
+                'Positive Themes': ai_summary_overall.get('positive_themes'),
+                'Negative Themes': ai_summary_overall.get('negative_themes'),
+                'Feature Requests': ai_summary_overall.get('feature_requests'),
+                'Bug Reports': ai_summary_overall.get('bug_reports'),
+                 # No sort key needed here
+            }
+
+            # Define column order for the summary sheet
+            summary_columns = ['Language', 'Negative Reviews', 'Positive Reviews', 'Total Reviews', '% Positive',
+                               'Analyzed Sentiment', 'Positive Themes', 'Negative Themes', 'Feature Requests', 'Bug Reports']
+
+            # --- Step 4.2: Write Consolidated Summary Sheet --- 
+            summary_sheet_name = "Summary"
+            logger.info(f"[Async] Writing sheet: {summary_sheet_name}")
+            worksheet_summary = workbook.add_worksheet(summary_sheet_name)
+            worksheet_summary.write('A1', summary_sheet_name, fmt_sheet_title)
+            current_row_summary = 2 # Start below title
+
+            # Write Headers
+            for c_idx, col_name in enumerate(summary_columns):
+                worksheet_summary.write(current_row_summary, c_idx, col_name, fmt_header)
+            current_row_summary += 1
+
+            # Write Total Row
+            for c_idx, col_name in enumerate(summary_columns):
+                value = total_row_data.get(col_name)
+                fmt = fmt_default_border # Default format
+                if col_name == 'Language':
+                    fmt = fmt_header_left # Header style for the row label
+                    worksheet_summary.write_string(current_row_summary, c_idx, str(value) if value is not None else '-', fmt)
+                elif col_name == '% Positive':
+                    fmt = fmt_percent
+                    worksheet_summary.write_number(current_row_summary, c_idx, value if value is not None else 0, fmt)
+                elif col_name in ['Negative Reviews', 'Positive Reviews', 'Total Reviews']:
+                    fmt = fmt_number
+                    worksheet_summary.write_number(current_row_summary, c_idx, value if value is not None else 0, fmt)
+                else: # AI analysis columns
+                    fmt = fmt_text_wrap
+                    write_analysis_cell(worksheet_summary, current_row_summary, c_idx, value, fmt)
+            current_row_summary += 1
+
+            # Write Blank Separator Row (optional, for visual spacing)
+            worksheet_summary.set_row(current_row_summary, 10) # Make it a bit shorter
+            current_row_summary += 1 
+
+            # Write Individual Language Rows
+            for lang_data in sorted_summary_data:
+                 for c_idx, col_name in enumerate(summary_columns):
+                     value = lang_data.get(col_name)
+                     fmt = fmt_default_border # Default format
+                     if col_name == 'Language':
+                         fmt = fmt_bold # Just bold for language name
+                         worksheet_summary.write_string(current_row_summary, c_idx, str(value) if value is not None else '-', fmt)
+                     elif col_name == '% Positive':
+                         fmt = fmt_percent
+                         worksheet_summary.write_number(current_row_summary, c_idx, value if value is not None else 0, fmt)
+                     elif col_name in ['Negative Reviews', 'Positive Reviews', 'Total Reviews']:
+                         fmt = fmt_number
+                         worksheet_summary.write_number(current_row_summary, c_idx, value if value is not None else 0, fmt)
+                     else: # AI analysis columns
+                         fmt = fmt_text_wrap
+                         write_analysis_cell(worksheet_summary, current_row_summary, c_idx, value, fmt)
+                 current_row_summary += 1
+                 # Optional: Add blank row between languages
+                 # worksheet_summary.set_row(current_row_summary, 10)
+                 # current_row_summary += 1 
+
+            # Adjust column widths for Summary sheet
+            worksheet_summary.set_column('A:A', 25) # Language
+            worksheet_summary.set_column('B:D', 15) # Counts
+            worksheet_summary.set_column('E:E', 12) # Percent
+            worksheet_summary.set_column('F:J', 45) # AI Analysis columns - wider and wrapped
+            worksheet_summary.freeze_panes(3, 1) # Freeze header row and language column
+            logger.info(f"[Async] Finished writing sheet: {summary_sheet_name}")
+
+            # --- Step 4.3: Write "Reviews_All" Sheet ---
+            reviews_all_sheet_name = "Reviews_All"
+            logger.info(f"[Async] Writing sheet: {reviews_all_sheet_name}")
+            worksheet_reviews_all = workbook.add_worksheet(reviews_all_sheet_name)
+            worksheet_reviews_all.write('A1', reviews_all_sheet_name, fmt_sheet_title)
+            current_row_reviews_all = 2
+
+            # Define column order, bringing Language Name near the start
+            all_reviews_cols_order = [
+                'recommendationid', 'Language Name', 'voted_up', 'sentiment',
+                'original_review_text', 'english_translation',
+                'timestamp_created', 'timestamp_updated',
+                'votes_up', 'votes_funny', 'weighted_vote_score', 'comment_count',
+                'author_steamid', 'author_playtime_forever', 'author_playtime_at_review',
+                'steam_purchase', 'received_for_free', 'written_during_early_access',
+                'developer_response', 'original_language' # Keep original code maybe?
+            ]
+            reviews_df['sentiment'] = reviews_df['voted_up'].apply(lambda x: 'Positive' if x else 'Negative')
+            reviews_df_cols = [col for col in all_reviews_cols_order if col in reviews_df.columns]
+            all_reviews_df_ordered = reviews_df[reviews_df_cols].copy()
+
+            # Make datetime columns timezone-naive for xlsxwriter
+            for dt_col in ['timestamp_created', 'timestamp_updated']:
+                 if dt_col in all_reviews_df_ordered.columns and pd.api.types.is_datetime64_any_dtype(all_reviews_df_ordered[dt_col]):
+                     try:
+                         if all_reviews_df_ordered[dt_col].dt.tz is not None:
+                              all_reviews_df_ordered[dt_col] = all_reviews_df_ordered[dt_col].dt.tz_localize(None)
+                     except Exception as tz_err:
+                         logger.warning(f"Could not make column {dt_col} timezone-naive for All Reviews: {tz_err}. Exporting as string.")
+                         all_reviews_df_ordered[dt_col] = all_reviews_df_ordered[dt_col].astype(str)
+
+            # Write DataFrame to Excel
+            all_reviews_df_ordered.to_excel(writer, sheet_name=reviews_all_sheet_name, index=False, startrow=current_row_reviews_all)
+
+            # Apply formatting to All Reviews sheet headers
+            for c_idx, value in enumerate(all_reviews_df_ordered.columns.values):
+                worksheet_reviews_all.write(current_row_reviews_all, c_idx, value, fmt_header)
+            
+            # Apply specific formats (dates, text wrap)
+            for dt_col_name in ['timestamp_created', 'timestamp_updated']:
+                if dt_col_name in all_reviews_df_ordered.columns:
+                     dt_col_idx = all_reviews_df_ordered.columns.get_loc(dt_col_name)
+                     if pd.api.types.is_datetime64_any_dtype(all_reviews_df_ordered[dt_col_name]):
+                         worksheet_reviews_all.set_column(dt_col_idx, dt_col_idx, 20, fmt_date)
+                     else:
+                         worksheet_reviews_all.set_column(dt_col_idx, dt_col_idx, 20)
+            text_cols = ['original_review_text', 'english_translation', 'developer_response']
+            for txt_col_name in text_cols:
+                if txt_col_name in all_reviews_df_ordered.columns:
+                    txt_col_idx = all_reviews_df_ordered.columns.get_loc(txt_col_name)
+                    worksheet_reviews_all.set_column(txt_col_idx, txt_col_idx, 50, fmt_text_wrap)
+
+            adjust_column_widths(all_reviews_df_ordered, worksheet_reviews_all)
+            worksheet_reviews_all.freeze_panes(3, 0) # Freeze header row
+            logger.info(f"[Async] Finished writing sheet: {reviews_all_sheet_name}")
+
+            # --- Step 4.4: Write Individual Language Review Sheets (Sorted) ---
+            # Use the same sorted list as the summary sheet for consistent ordering
+            sorted_sheet_lang_codes = [d['Language'] for d in sorted_summary_data] # Get sorted language names
+            logger.info(f"[Async] Languages sorted for individual review sheets: {sorted_sheet_lang_codes}")
+            
+            for lang_name in sorted_sheet_lang_codes:
+                # Find the original lang_code and data using lang_name
+                lang_code = next((lc for lc, name in LANGUAGE_MAP.items() if name == lang_name), lang_name) # Fallback if not in map
+                data = language_data_map.get(lang_code)
+                
+                if not data:
+                    logger.warning(f"[Async] Could not find data for language {lang_name} ({lang_code}) for individual review sheet, skipping.")
+                    continue
+
                 lang_df = data.get('df')
-                lang_summary_data = data.get('summary_result', {"error": f"Summary data missing for {lang_name}."})
-
-                # Check if df is None or empty (handle potential edge case where df wasn't stored)
                 if lang_df is None or lang_df.empty:
-                    logger.info(f"[Async] Skipping sheet writing for {lang_name} as DataFrame is empty or missing.")
-                    continue # Don't write sheets if no reviews existed or df is missing
+                    logger.info(f"[Async] Skipping individual review sheet for {lang_name} as DataFrame is empty or missing.")
+                    continue
 
-                logger.info(f"[Async] Writing Excel sheets for {lang_name} ({lang_code})...")
-                summary_sheet_name = f"Summary_{lang_code}"
+                # --- Create Sheet ---
                 reviews_sheet_name = f"Reviews_{lang_code}"
+                logger.info(f"[Async] Writing sheet: {reviews_sheet_name}...")
+                worksheet_reviews = workbook.add_worksheet(reviews_sheet_name)
+                worksheet_reviews.write('A1', reviews_sheet_name, fmt_sheet_title)
+                current_row_reviews = 2
 
-                # --- Write Summary Sheet (Copied/adapted from original, uses lang_summary_data) ---
-                current_row = 0
-                # Use the pre-calculated count for stats
-                lang_total = lang_counts.get(lang_code, 0)
-                # Calculate pos/neg directly from the lang_df if it exists
-                lang_pos = len(lang_df[lang_df['voted_up'] == True]) if not lang_df.empty else 0
-                lang_neg = lang_total - lang_pos
-                lang_pos_pct = (lang_pos / lang_total) * 100 if lang_total > 0 else 0
-
-                lang_stats_data = {
-                    'Metric': [
-                        f'{lang_name} Reviews Processed',
-                        'Positive Reviews',
-                        'Negative Reviews',
-                        'Positive Percentage'
-                    ],
-                    'Value': [
-                        lang_total,
-                        lang_pos,
-                        lang_neg,
-                        f"{lang_pos_pct:.1f}%"
-                    ]
-                }
-                lang_stats_df = pd.DataFrame(lang_stats_data)
-                lang_stats_df.to_excel(writer, sheet_name=summary_sheet_name, index=False, startrow=current_row)
-                current_row += len(lang_stats_df) + 2
-
-                # Write structured analysis below stats
-                if isinstance(lang_summary_data, dict):
-                    if 'error' in lang_summary_data:
-                        error_df = pd.DataFrame([lang_summary_data.get('error')], columns=['Analysis Error'])
-                        error_df.to_excel(writer, sheet_name=summary_sheet_name, index=False, startrow=current_row)
-                        current_row += 2
-                        if 'raw_response' in lang_summary_data:
-                             pd.DataFrame([lang_summary_data['raw_response']], columns=['Raw AI Response']).to_excel(writer, sheet_name=summary_sheet_name, index=False, startrow=current_row)
-                        elif 'refusal_message' in lang_summary_data:
-                             pd.DataFrame([lang_summary_data['refusal_message']], columns=['Refusal Message']).to_excel(writer, sheet_name=summary_sheet_name, index=False, startrow=current_row)
-                    else:
-                        for key, value in lang_summary_data.items():
-                            section_title = key.replace('_', ' ').title()
-                            pd.DataFrame([section_title], columns=['Analysis Section']).to_excel(writer, sheet_name=summary_sheet_name, index=False, header=False, startrow=current_row)
-                            current_row += 1
-                            if isinstance(value, list):
-                                pd.DataFrame(value, columns=['Details']).to_excel(writer, sheet_name=summary_sheet_name, index=False, header=False, startrow=current_row)
-                                current_row += len(value) if value else 1
-                            elif value is not None:
-                                pd.DataFrame([str(value)], columns=['Details']).to_excel(writer, sheet_name=summary_sheet_name, index=False, header=False, startrow=current_row)
-                                current_row += 1
-                            else:
-                                current_row += 1
-                            current_row += 1
-                else:
-                    pd.DataFrame(["Analysis data invalid"], columns=['Status']).to_excel(writer, sheet_name=summary_sheet_name, index=False, startrow=current_row)
-
-                # --- Write Reviews Sheet (Copied/adapted from original) ---
-                # No change needed here, still uses lang_df
+                # --- Prepare and Write DataFrame ---
+                # (Using the same column order and datetime handling as before)
                 review_cols_order = [
                     'recommendationid', 'voted_up', 'sentiment',
                     'original_review_text', 'english_translation',
@@ -412,21 +536,50 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                 ]
                 lang_df['sentiment'] = lang_df['voted_up'].apply(lambda x: 'Positive' if x else 'Negative')
                 lang_df_cols = [col for col in review_cols_order if col in lang_df.columns]
-                lang_df_ordered = lang_df[lang_df_cols]
-                lang_df_ordered.to_excel(writer, sheet_name=reviews_sheet_name, index=False)
-                logger.info(f"[Async] Written sheets {summary_sheet_name} and {reviews_sheet_name}.")
+                lang_df_ordered = lang_df[lang_df_cols].copy()
 
-            # Overall summary sheet writing is moved BEFORE this loop
+                for dt_col in ['timestamp_created', 'timestamp_updated']:
+                    if dt_col in lang_df_ordered.columns and pd.api.types.is_datetime64_any_dtype(lang_df_ordered[dt_col]):
+                        try:
+                            if lang_df_ordered[dt_col].dt.tz is not None:
+                                lang_df_ordered[dt_col] = lang_df_ordered[dt_col].dt.tz_localize(None)
+                        except Exception as tz_err:
+                            logger.warning(f"Could not make column {dt_col} timezone-naive for {reviews_sheet_name}: {tz_err}. Exporting as string.")
+                            lang_df_ordered[dt_col] = lang_df_ordered[dt_col].astype(str)
+
+                lang_df_ordered.to_excel(writer, sheet_name=reviews_sheet_name, index=False, startrow=current_row_reviews)
+
+                # --- Apply Formatting ---
+                for c_idx, value in enumerate(lang_df_ordered.columns.values):
+                    worksheet_reviews.write(current_row_reviews, c_idx, value, fmt_header)
+                for dt_col_name in ['timestamp_created', 'timestamp_updated']:
+                    if dt_col_name in lang_df_ordered.columns:
+                         dt_col_idx = lang_df_ordered.columns.get_loc(dt_col_name)
+                         if pd.api.types.is_datetime64_any_dtype(lang_df_ordered[dt_col_name]):
+                             worksheet_reviews.set_column(dt_col_idx, dt_col_idx, 20, fmt_date)
+                         else:
+                             worksheet_reviews.set_column(dt_col_idx, dt_col_idx, 20)
+                text_cols = ['original_review_text', 'english_translation', 'developer_response']
+                for txt_col_name in text_cols:
+                    if txt_col_name in lang_df_ordered.columns:
+                        txt_col_idx = lang_df_ordered.columns.get_loc(txt_col_name)
+                        worksheet_reviews.set_column(txt_col_idx, txt_col_idx, 50, fmt_text_wrap)
+                adjust_column_widths(lang_df_ordered, worksheet_reviews)
+                worksheet_reviews.freeze_panes(3, 0) # Freeze header row
+                logger.info(f"[Async] Finished writing sheet {reviews_sheet_name}.")
 
         logger.info("[Async] Excel writing finished. Report generation completed.")
 
     except Exception as e:
         logger.exception(f"[Async] Error during async report generation: {e}")
-        # Rewrite the Excel file to indicate the error
+        # Rewrite the Excel file to indicate the error (using xlsxwriter)
         output.seek(0)
         output.truncate()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            pd.DataFrame([{"Error": f"Report Generation Failed: {str(e)}"}]).to_excel(writer, sheet_name="Error", index=False)
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            workbook = writer.book
+            worksheet = workbook.add_worksheet("Error")
+            fmt_error = workbook.add_format({'bold': True, 'font_color': 'red', 'align': 'center'})
+            worksheet.merge_range('A1:D1', f"Report Generation Failed: {str(e)}", fmt_error)
     finally:
         logger.info("[Async] Closing database session for report generation.")
         try:
@@ -458,7 +611,7 @@ if __name__ == '__main__':
             report_bytes = await generate_summary_report(TEST_APP_ID, TEST_START_TIMESTAMP)
             end_time = asyncio.get_event_loop().time()
             logger.info(f"Async report generation took {end_time - start_time:.2f} seconds.")
-            output_filename = f"test_report_async_{TEST_APP_ID}_{start_date.strftime('%Y%m%d')}.xlsx"
+            output_filename = f"test_report_consolidated_{TEST_APP_ID}_{start_date.strftime('%Y%m%d')}.xlsx"
             with open(output_filename, 'wb') as f:
                 f.write(report_bytes)
             logger.info(f"Test report saved to: {output_filename}")
