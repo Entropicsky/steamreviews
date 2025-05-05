@@ -31,7 +31,7 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 DEFAULT_SLACK_CHANNEL_ID = os.getenv("DEFAULT_SLACK_CHANNEL_ID") # e.g., C1234567890
 
 async def run_report_and_upload(app_id: int, timespan: str, channel_id: str, custom_message: Optional[str] = None):
-    """Generates report, uploads to Slack, and cleans up."""
+    """Generates report, uploads to Slack, and cleans up, checking schedule first."""
     if not SLACK_BOT_TOKEN:
         logger.error("SLACK_BOT_TOKEN environment variable not set. Cannot upload to Slack.")
         return
@@ -39,10 +39,26 @@ async def run_report_and_upload(app_id: int, timespan: str, channel_id: str, cus
         logger.error("Slack channel ID not provided or set in environment (DEFAULT_SLACK_CHANNEL_ID).")
         return
 
+    # --- Check if today is the correct day to run based on timespan --- 
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    today_utc_date = now_utc.date()
+
+    if timespan == 'weekly':
+        # 0 = Monday, 1 = Tuesday, ..., 6 = Sunday
+        if today_utc_date.weekday() != 0: # Check if it's NOT Monday
+            logger.info(f"Today ({today_utc_date.strftime('%A')}) is not Monday. Skipping weekly report run.")
+            return
+        logger.info("Today is Monday, proceeding with weekly report run.")
+    elif timespan == 'monthly':
+        if today_utc_date.day != 1: # Check if it's NOT the 1st of the month
+            logger.info(f"Today ({today_utc_date.day}) is not the 1st of the month. Skipping monthly report run.")
+            return
+        logger.info("Today is the 1st of the month, proceeding with monthly report run.")
+    # --- End schedule check --- 
+    
     logger.info(f"Starting scheduled report generation for App ID: {app_id}, Timespan: {timespan}")
 
     # 1. Calculate start_timestamp
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
     try:
         if timespan == 'weekly':
             start_of_this_week = now_utc - datetime.timedelta(days=now_utc.weekday())
