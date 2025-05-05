@@ -7,6 +7,7 @@ import asyncio
 import tempfile
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.errors import SlackApiError
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
@@ -29,7 +30,7 @@ from src.reporting.excel_generator import generate_summary_report
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 DEFAULT_SLACK_CHANNEL_ID = os.getenv("DEFAULT_SLACK_CHANNEL_ID") # e.g., C1234567890
 
-async def run_report_and_upload(app_id: int, timespan: str, channel_id: str):
+async def run_report_and_upload(app_id: int, timespan: str, channel_id: str, custom_message: Optional[str] = None):
     """Generates report, uploads to Slack, and cleans up."""
     if not SLACK_BOT_TOKEN:
         logger.error("SLACK_BOT_TOKEN environment variable not set. Cannot upload to Slack.")
@@ -56,7 +57,6 @@ async def run_report_and_upload(app_id: int, timespan: str, channel_id: str):
             start_timestamp = int(start_datetime_utc.timestamp())
             time_period_desc = f"last month ({start_datetime_utc.strftime('%Y-%m')})"
         else:
-            # This should ideally be caught by argparse choices, but double-check
             logger.error(f"Invalid timespan '{timespan}' received.")
             return
         logger.info(f"Calculated start timestamp: {start_timestamp} ({start_datetime_utc}) for period: {time_period_desc}")
@@ -70,16 +70,13 @@ async def run_report_and_upload(app_id: int, timespan: str, channel_id: str):
         report_bytes = await generate_summary_report(app_id, start_timestamp)
         if not report_bytes:
             logger.error("Report generation returned empty bytes.")
-            # Optionally send an error message to Slack?
             return
         logger.info(f"Report generation successful. Size: {len(report_bytes)} bytes.")
     except Exception as e:
         logger.exception(f"Error during report generation: {e}")
-        # Optionally send an error message to Slack?
         return
 
     # 3. Save bytes to a temporary file
-    # Using tempfile ensures it gets cleaned up even if Slack upload fails
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_file:
         tmp_file_path = tmp_file.name
         tmp_file.write(report_bytes)
@@ -89,12 +86,20 @@ async def run_report_and_upload(app_id: int, timespan: str, channel_id: str):
     try:
         client = AsyncWebClient(token=SLACK_BOT_TOKEN)
         filename = f"steam_reviews_{app_id}_{timespan}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        # Construct the initial comment
+        base_comment = f"Steam Reviews Summary Report for App ID {app_id} ({timespan} - {time_period_desc})"
+        if custom_message:
+            initial_comment = f"{custom_message}\n\n{base_comment}"
+        else:
+            initial_comment = base_comment
+            
         logger.info(f"Attempting Slack upload with: channel='{channel_id}', file='{tmp_file_path}', filename='{filename}'")
         response = await client.files_upload_v2(
             channel=channel_id,
             file=tmp_file_path,
             filename=filename,
-            initial_comment=f"Steam Reviews Summary Report for App ID {app_id} ({timespan} - {time_period_desc})",
+            initial_comment=initial_comment, # Use constructed comment
             title=f"Steam Reviews {timespan.capitalize()} Report"
         )
         if response.get("ok"):
@@ -120,11 +125,12 @@ def main():
     parser.add_argument("--app-id", type=int, required=True, help="Steam App ID for the report.")
     parser.add_argument("--timespan", type=str, required=True, choices=['weekly', 'monthly'], help="Time period for the report ('weekly' or 'monthly').")
     parser.add_argument("--channel-id", type=str, default=DEFAULT_SLACK_CHANNEL_ID, help="Slack Channel ID to upload the report to (overrides DEFAULT_SLACK_CHANNEL_ID env var).")
+    parser.add_argument("--message", type=str, default=None, help="Optional custom message to include with the Slack post.")
 
     args = parser.parse_args()
 
-    # Run the async function
-    asyncio.run(run_report_and_upload(args.app_id, args.timespan, args.channel_id))
+    # Run the async function, passing the new message argument
+    asyncio.run(run_report_and_upload(args.app_id, args.timespan, args.channel_id, args.message))
 
 if __name__ == "__main__":
     main() 
