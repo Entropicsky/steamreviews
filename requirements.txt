@@ -10,7 +10,4 @@ psycopg2-binary
 streamlit
 gunicorn
 alembic
-xlsxwriter
-fastapi
-uvicorn[standard]
-boto3 
+xlsxwriter 

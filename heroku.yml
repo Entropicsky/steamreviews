@@ -1,6 +1,6 @@
 build:
   docker:
-    # web: Dockerfile # Remove web build target
+    web: Dockerfile
     release: Dockerfile # Use same Dockerfile for build/release
     api: Dockerfile # Build target for the api process
     # If we had a separate worker Dockerfile:
@@ -11,7 +11,7 @@ release:
     # - alembic upgrade head # Disable automatic migration
     - true # Use no-op command for release phase
 run:
-  # web: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.enableCORS false --server.enableXsrfProtection false # Remove web process run command
-  api: uvicorn api_server:app --host 0.0.0.0 --port $PORT # Removed --workers 1
+  web: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.enableCORS false --server.enableXsrfProtection false
+  # api process removed
   # Optional: Define command for worker dyno if needed later
   # worker: python -m src.run_pipeline 
