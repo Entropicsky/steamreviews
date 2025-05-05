@@ -13,110 +13,154 @@ import logging
 import sys
 import os
 import time
+import concurrent.futures
+from typing import Optional
 
 # Adjust path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
 
-from .database.connection import get_db
+from .database.connection import get_db, SessionLocal
 from .database import crud, models
 from .processing.analyzer import ReviewAnalyzer
 from .openai_client import OPENAI_MODEL # Import default model
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - [%(name)s] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 BATCH_SIZE = 20 # Smaller batch for potentially longer analysis calls
-SLEEP_BETWEEN_BATCHES = 5 # Seconds
+MAX_WORKERS = 8 # Max concurrent analysis API calls
+# SLEEP_BETWEEN_BATCHES = 5 # Seconds
+
+def _process_single_analysis(review: models.Review, analyzer: ReviewAnalyzer) -> tuple[int, str, Optional[str]]:
+    """Helper function to analyze one review and return result for DB update.
+       Designed to be run in a separate thread.
+    """
+    recommendation_id = review.recommendationid
+    logger.debug(f"Thread processing review {recommendation_id} for analysis...")
+
+    text_to_analyze = None
+    if review.translation_status == 'translated' and review.english_translation:
+        text_to_analyze = review.english_translation
+    elif review.original_language == 'english':
+            text_to_analyze = review.original_review_text
+    
+    if not text_to_analyze or not text_to_analyze.strip():
+        logger.warning(f"Thread skipping analysis for review {recommendation_id}: No suitable text.")
+        # Update status to failed directly here?
+        thread_db: Session = SessionLocal()
+        try:
+            crud.update_review_analysis(thread_db, recommendation_id, {}, 'failed')
+            return (recommendation_id, 'failed', "No text available")
+        except Exception as db_err:
+            logger.error(f"Thread DB update failed for skipped analysis {recommendation_id}: {db_err}")
+            return (recommendation_id, 'failed', f"DB error on skip: {db_err}")
+        finally:
+            thread_db.close()
+
+    analysis_result_dict = analyzer.analyze_review_text(text_to_analyze)
+
+    status = 'failed'
+    if isinstance(analysis_result_dict, dict) and 'error' not in analysis_result_dict:
+        status = 'analyzed'
+    elif isinstance(analysis_result_dict, dict) and analysis_result_dict.get('error') == "Model refused analysis request":
+        status = 'skipped'
+    
+    # Update DB in this thread
+    thread_db: Session = SessionLocal()
+    try:
+        crud.update_review_analysis(
+            db=thread_db,
+            recommendation_id=recommendation_id,
+            analysis_data=analysis_result_dict,
+            status=status
+        )
+        logger.debug(f"Thread updated review {recommendation_id} analysis status to {status}")
+        return (recommendation_id, status, analysis_result_dict.get('error')) # Return status and maybe error
+    except Exception as e:
+        logger.error(f"Thread DB update failed for analysis {recommendation_id}: {e}")
+        return (recommendation_id, 'failed', str(e)) # Return fail status and error
+    finally:
+        thread_db.close()
 
 def process_analysis():
-    logger.info("Starting analysis processing run...")
-    processed_count = 0
-    failed_count = 0
-    skipped_count = 0 # For refused analysis
+    logger.info("Starting analysis processing run (multi-threaded)...")
+    total_processed_count = 0
+    total_failed_count = 0
+    total_skipped_count = 0
 
-    analyzer = ReviewAnalyzer() # Initialize analyzer (uses default model)
+    analyzer = ReviewAnalyzer() # One analyzer instance is likely fine
 
-    # Use context manager for DB session
+    # Use outer DB session for querying batches
     db_session_gen = get_db()
     db: Session = next(db_session_gen)
 
     try:
-        while True: # Keep running until no more pending reviews found in a batch
+        while True: 
             logger.info(f"Querying for up to {BATCH_SIZE} reviews needing analysis...")
             reviews_to_analyze = crud.get_reviews_needing_analysis(db, limit=BATCH_SIZE)
 
             if not reviews_to_analyze:
-                logger.info("No more reviews found needing analysis in this batch. Sleeping...")
+                logger.info("No more reviews found needing analysis. Exiting loop.")
                 break
 
-            logger.info(f"Found {len(reviews_to_analyze)} reviews to process.")
+            logger.info(f"Found {len(reviews_to_analyze)} reviews to process in this batch.")
+            batch_results = []
 
-            for review in reviews_to_analyze:
-                logger.debug(f"Processing review {review.recommendationid} for analysis...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                # Pass the shared analyzer instance to the worker function
+                # partial_process_func = partial(_process_single_analysis, analyzer=analyzer)
+                # executor.map is simpler if we only pass one varying argument (review)
+                # Use submit to handle passing both review and analyzer
+                future_map = {}
+                for review in reviews_to_analyze:
+                    future = executor.submit(_process_single_analysis, review, analyzer)
+                    future_map[future] = review.recommendationid
                 
-                # Simplify: Always use english_translation as it should be populated
-                # for both 'translated' and 'not_required' (English) reviews.
-                text_to_analyze = review.english_translation
-                
-                # Add a check for empty/null text just in case
-                if not text_to_analyze or not text_to_analyze.strip():
-                     logger.warning(f"Skipping analysis for review {review.recommendationid}: english_translation field is empty or null. Setting status to failed.")
-                     # Update status to failed even if text is missing
-                     crud.update_review_analysis(db, review.recommendationid, {}, 'failed')
-                     failed_count += 1
-                     continue
+                for future in concurrent.futures.as_completed(future_map):
+                    rec_id = future_map[future]
+                    try:
+                        result_id, status, error_msg = future.result()
+                        batch_results.append(status)
+                        if status == 'analyzed':
+                            total_processed_count += 1
+                        elif status == 'skipped':
+                            total_skipped_count += 1
+                        else:
+                            total_failed_count += 1
+                            logger.warning(f"Analysis/Update failed for review {result_id}: {error_msg}")
+                    except Exception as exc:
+                        logger.error(f"Review {rec_id} generated an exception in analysis thread: {exc}")
+                        total_failed_count += 1
+                        batch_results.append('failed')
+            
+            logger.info(f"Batch finished. Results - Analyzed: {batch_results.count('analyzed')}, Skipped: {batch_results.count('skipped')}, Failed: {batch_results.count('failed')}")
 
-                # Proceed with analysis using text_to_analyze
-                analysis_result_dict = analyzer.analyze_review_text(text_to_analyze)
-
-                status = 'failed' # Default status
-                if isinstance(analysis_result_dict, dict) and 'error' not in analysis_result_dict:
-                    status = 'analyzed'
-                    processed_count += 1
-                elif isinstance(analysis_result_dict, dict) and analysis_result_dict.get('error') == "Model refused analysis request":
-                    status = 'skipped' # Mark refused as skipped
-                    skipped_count += 1
-                else:
-                     failed_count += 1
-                
-                # Update DB
-                crud.update_review_analysis(
-                    db=db,
-                    recommendation_id=review.recommendationid,
-                    analysis_data=analysis_result_dict, # Pass the whole dict (contains error or data)
-                    status=status
-                )
-                logger.debug(f"Updated review {review.recommendationid} analysis status to {status}")
-
-                # Optional: Add small delay
-                time.sleep(0.5)
-
-            # Check if loop should continue
             if len(reviews_to_analyze) < BATCH_SIZE:
-                 logger.info("Processed partial batch, likely finished pending reviews for analysis.")
+                 logger.info("Processed partial batch, likely finished all pending reviews for analysis.")
                  break
             else:
-                 logger.info("Processed full batch, checking for more...")
+                 logger.info("Processed full batch, fetching next batch...")
+                 time.sleep(1)
 
     except Exception as e:
-        logger.exception(f"An error occurred during analysis processing: {e}")
+        logger.exception(f"An error occurred during the main analysis processing loop: {e}")
     finally:
-        logger.info("Closing database session.")
+        logger.info("Closing main database session.")
         try:
-            next(db_session_gen) # Ensure session is closed
+            next(db_session_gen) 
         except StopIteration:
             pass
         except Exception as e:
-             logger.error(f"Error closing DB session: {e}")
+             logger.error(f"Error closing main DB session: {e}")
 
-    logger.info(f"Analysis processing finished. Analyzed: {processed_count}, Failed: {failed_count}, Skipped (Refused): {skipped_count}")
+    logger.info(f"Analysis processing finished. Total Analyzed: {total_processed_count}, Total Failed: {total_failed_count}, Total Skipped: {total_skipped_count}")
 
 if __name__ == "__main__":
     process_analysis() 
