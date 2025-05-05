@@ -328,7 +328,8 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
                     neg = count - pos
                 lang_pos_counts[lang_code] = pos
                 lang_neg_counts[lang_code] = neg
-                pct = (pos / count) * 100.0 if count > 0 else 0.0
+                # Explicitly cast to float before division/multiplication
+                pct = (float(pos) / float(count)) * 100.0 if count > 0 else 0.0
                 
                 ai_summary = data.get('summary_result', {})
                 if not isinstance(ai_summary, dict):
@@ -356,7 +357,8 @@ async def generate_summary_report(app_id: int, start_timestamp: int) -> bytes:
             overall_total = sum(lang_counts.values())
             overall_pos = sum(lang_pos_counts.values())
             overall_neg = sum(lang_neg_counts.values())
-            overall_pct = (overall_pos / overall_total) * 100.0 if overall_total > 0 else 0.0
+            # Explicitly cast to float before division/multiplication
+            overall_pct = (float(overall_pos) / float(overall_total)) * 100.0 if overall_total > 0 else 0.0
             ai_summary_overall = overall_summary_result if isinstance(overall_summary_result, dict) else {"error": "Invalid AI summary format."}
 
             total_row_data = {
