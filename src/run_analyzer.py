@@ -56,20 +56,16 @@ def _process_single_analysis(review: models.Review, analyzer: ReviewAnalyzer) ->
     
     if not text_to_analyze or not text_to_analyze.strip():
         logger.warning(f"Thread skipping analysis for review {recommendation_id}: No suitable text.")
-        db_session_gen = get_db() # Get session for update
-        thread_db: Session = next(db_session_gen)
+        thread_db: Optional[Session] = None
         try:
+            thread_db = SessionLocal()
             crud.update_review_analysis(thread_db, recommendation_id, {}, 'failed')
             return (recommendation_id, 'failed', "No text available")
         except Exception as db_err:
             logger.error(f"Thread DB update failed for skipped analysis {recommendation_id}: {db_err}")
             return (recommendation_id, 'failed', f"DB error on skip: {db_err}")
         finally:
-            # Ensure session is closed
-            try:
-                 next(db_session_gen)
-            except StopIteration: pass
-            except Exception as close_err: logger.error(f"Error closing DB session in thread for skipped analysis {recommendation_id}: {close_err}")
+            if thread_db: thread_db.close()
 
     analysis_result_dict = analyzer.analyze_review_text(text_to_analyze)
 
@@ -79,27 +75,25 @@ def _process_single_analysis(review: models.Review, analyzer: ReviewAnalyzer) ->
     elif isinstance(analysis_result_dict, dict) and analysis_result_dict.get('error') == "Model refused analysis request":
         status = 'skipped'
     
-    # Update DB using get_db session
-    db_session_gen = get_db()
-    thread_db: Session = next(db_session_gen)
+    # Update DB using direct session
+    thread_db: Optional[Session] = None
     try:
+        thread_db = SessionLocal()
         crud.update_review_analysis(
             db=thread_db,
             recommendation_id=recommendation_id,
             analysis_data=analysis_result_dict,
             status=status
         )
-        logger.debug(f"Thread updated review {recommendation_id} analysis status to {status}")
+        logger.debug(f"Thread update attempted for review {recommendation_id} analysis status to {status}")
         return (recommendation_id, status, analysis_result_dict.get('error'))
     except Exception as e:
         logger.error(f"Thread DB update failed for analysis {recommendation_id}: {e}")
         return (recommendation_id, 'failed', str(e))
     finally:
-        # Ensure session is closed
-        try:
-            next(db_session_gen)
-        except StopIteration: pass
-        except Exception as close_err: logger.error(f"Error closing DB session in thread for analysis {recommendation_id}: {close_err}")
+        if thread_db: 
+            thread_db.close()
+            logger.debug(f"Thread DB session closed for analysis {recommendation_id}")
 
 def process_analysis():
     logger.info("Starting analysis processing run (multi-threaded)...")

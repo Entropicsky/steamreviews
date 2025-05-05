@@ -59,10 +59,10 @@ def _process_single_translation(review: models.Review, translator: Translator) -
     elif translation_result and translation_result.startswith("[REFUSAL"):
         status = 'skipped'
     
-    # Get DB session using the dependency function with context manager
-    db_session_gen = get_db()
-    thread_db: Session = next(db_session_gen)
+    # Create and manage session DIRECTLY within the thread
+    thread_db: Optional[Session] = None
     try:
+        thread_db = SessionLocal() # Create a new session for this thread
         crud.update_review_translation(
             db=thread_db,
             recommendation_id=recommendation_id,
@@ -70,19 +70,17 @@ def _process_single_translation(review: models.Review, translator: Translator) -
             model=translator.model, 
             status=status
         )
-        logger.debug(f"Thread updated review {recommendation_id} status to {status}")
-        return (recommendation_id, status, None) # Return success status
+        # crud function handles commit/rollback
+        logger.debug(f"Thread update attempted for review {recommendation_id} with status {status}")
+        return (recommendation_id, status, None) # Return status
     except Exception as e:
-         logger.error(f"Thread DB update failed for review {recommendation_id}: {e}")
+         # Log error, crud function should have rolled back
+         logger.error(f"Thread processing/DB update failed for review {recommendation_id}: {e}")
          return (recommendation_id, 'failed', str(e)) # Return fail status and error
     finally:
-        # Ensure the session from get_db is closed correctly
-        try:
-            next(db_session_gen)
-        except StopIteration:
-             pass # Expected if generator already yielded and finished
-        except Exception as close_err:
-              logger.error(f"Error closing DB session in thread for review {recommendation_id}: {close_err}")
+        if thread_db: 
+             thread_db.close()
+             logger.debug(f"Thread DB session closed for review {recommendation_id}")
 
 def process_translations():
     logger.info("Starting translation processing run (multi-threaded)...")
