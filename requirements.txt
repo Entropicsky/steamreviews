@@ -11,4 +11,5 @@ streamlit
 gunicorn
 alembic
 xlsxwriter
-slack_sdk 
+slack_sdk
+aiohttp 
