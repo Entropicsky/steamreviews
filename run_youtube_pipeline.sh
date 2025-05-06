@@ -30,6 +30,10 @@ if [ $ANALYZE_EXIT_CODE -ne 0 ]; then
     exit $ANALYZE_EXIT_CODE
 fi
 
+# echo "\
+# --- Running YouTube Slack Reporter ---" # This should be a separate scheduled job
+# heroku run "python -m scripts.youtube_slack_reporter --game-id 1 --period last_day --channel-id C03558AR5T5 --message \"SMITE 2 YouTube videos last day.\"" -a steam-reviews
+
 echo "====================================================="
 echo "YouTube Feedback Pipeline Run Finished Successfully: $(date)"
 echo "====================================================="
