@@ -69,7 +69,10 @@ def is_5xx_error(e):
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     # Combine specific exception types with the 5xx check
-    retry=(retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES) | retry_if_exception_type(is_5xx_error))
+    retry=(
+        retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES),
+        retry_if_exception_type(is_5xx_error)
+    )
 )
 def call_openai_api(
     messages: list, # Changed from 'prompt' to 'messages' to align with client call
@@ -157,7 +160,10 @@ def call_openai_api(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     # Combine specific exception types with the 5xx check
-    retry=(retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES) | retry_if_exception_type(is_5xx_error))
+    retry=(
+        retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES),
+        retry_if_exception_type(is_5xx_error)
+    )
 )
 async def acall_openai_api(
     messages: list, # Changed from 'prompt' to 'messages'
