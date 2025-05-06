@@ -59,7 +59,7 @@ If a category has no relevant information in this batch, provide an empty list `
 
     try:
         summary_response_text = await acall_openai_api(
-            prompt=prompt,
+            messages=prompt,
             model=model,
             temperature=0.3,
             max_tokens=max_tokens # Use passed value
