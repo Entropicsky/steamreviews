@@ -95,7 +95,7 @@ async def generate_youtube_summary_report(db_session: Session, game_id: int, sta
             logger.info(f"Writing sheet: {summary_sheet_name}")
             worksheet_summary = workbook.add_worksheet(summary_sheet_name)
             worksheet_summary.write('A1', f"YouTube Feedback Video List for Game ID {game_id}", fmt_sheet_title)
-            worksheet_summary.write('A2', f"Period: {start_date.date()} to {end_date.date()}", fmt_default_top_border) # Use fmt_default_top_border
+            worksheet_summary.write('A2', f"Period: {start_date.date()} to {end_date.date()}", fmt_text_top_border) # Use fmt_text_top_border
             current_row_summary = 4 # Start below title and period
 
             # Define columns for the new summary view
