@@ -12,4 +12,5 @@ gunicorn
 alembic
 xlsxwriter
 slack_sdk
-aiohttp 
+aiohttp
+python-dateutil 

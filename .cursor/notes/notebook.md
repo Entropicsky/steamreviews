@@ -46,4 +46,15 @@
 - Set up OpenAI client with Responses API
 - Test translation capabilities with batch processing
 - Develop summary prompts for gpt-4.1 model
-- Validate approach before proceeding to full application 
+- Validate approach before proceeding to full application
+
+## Supadata API Findings (YouTube Feedback Feature)
+
+*   **Channel Identifier:** The `/youtube/channel/videos` endpoint requires the channel **handle** (e.g., `@Weak3n`) passed in the `id` parameter, *not* the standard `UC...` channel ID. Using the `UC...` ID resulted in a `502 Bad Gateway` error with the message `{"error":"youtube-api-error","message":"An error occurred with the YouTube API","details":"This channel does not exist."}`.
+*   **URL Construction:** The base URL provided in Supadata docs (`https://api.supadata.ai/v1/youtube`) already includes the `/youtube` path segment. Endpoint paths used with this base URL (e.g., for channel videos, video metadata, transcripts) should *not* also start with `/youtube`, otherwise it leads to duplicated paths (e.g., `/youtube/youtube/channel/videos`) and `404 Not Found` errors.
+*   **Transcript Fetching:** The client code currently requests transcripts using `format: "text"`. Need to verify the exact response structure from Supadata for the `/youtube/transcript` endpoint (e.g., what key contains the text) when we successfully fetch one.
+
+## General Notes
+*   Using OpenAI Responses API (`messages` parameter) and requesting JSON output via `response_format={'type': 'json_object'}`.
+*   Database seeding script (`seed_youtube_test_data.py`) created for testing.
+*   Direct API test script (`test_supadata_api.py`) created for debugging. 

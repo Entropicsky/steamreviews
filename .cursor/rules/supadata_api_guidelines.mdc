@@ -1,0 +1,12 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Supadata API Guidelines
+
+When working with the Supadata API client in `[src/youtube/supadata_client.py](mdc:src/youtube/supadata_client.py)`:
+
+1.  **Channel Video Endpoint Identifier**: The `/channel/videos` endpoint requires the YouTube channel **handle** (e.g., `@channelHandle`) passed as the `id` parameter, not the standard `UC...` channel ID.
+
+2.  **URL Construction**: The base URL (`SUPADATA_API_BASE_URL`) is defined as `https://api.supadata.ai/v1/youtube`. Ensure that endpoint paths passed to the `_request` method (e.g., `/channel/videos`, `/video`, `/transcript`) **do not** start with `/youtube` to avoid duplication and `404 Not Found` errors.

@@ -51,23 +51,28 @@ except Exception as e:
 
 # Define which OpenAI exceptions should be retried
 # These generally apply to both sync and async clients
-RETRYABLE_EXCEPTIONS = (
+RETRYABLE_EXCEPTION_TYPES = (
     openai.APITimeoutError,
     openai.APIConnectionError,
     openai.RateLimitError,
-    # Retry on server errors (5xx). Specific client errors (4xx) might need case-by-case handling.
-    lambda e: isinstance(e, openai.APIStatusError) and e.status_code >= 500
+    openai.InternalServerError # Explicitly add 500 errors if the specific class exists
+    # openai.APIStatusError # Don't retry all status errors, only 5xx
 )
+
+# Define a predicate for retrying on 5xx status errors specifically
+def is_5xx_error(e):
+    return isinstance(e, openai.APIStatusError) and e.status_code >= 500
 
 # --- Sync API Call Function ---
 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS)
+    # Combine specific exception types with the 5xx check
+    retry=(retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES) | retry_if_exception_type(is_5xx_error))
 )
 def call_openai_api(
-    prompt: Any,
+    messages: list, # Changed from 'prompt' to 'messages' to align with client call
     model: str = OPENAI_MODEL,
     max_tokens: int = 4096,
     temperature: float = 0.3,
@@ -88,12 +93,12 @@ def call_openai_api(
         logger.info(f"[OpenAI Client][Sync] Calling Responses API with model: {actual_model}")
 
         # Prepare input for Responses API
-        if isinstance(prompt, str):
-            api_input = [{"role": "user", "content": prompt}]
-        elif isinstance(prompt, list):
-            api_input = prompt
+        if isinstance(messages, str):
+            api_input = [{"role": "user", "content": messages}]
+        elif isinstance(messages, list):
+            api_input = messages
         else:
-            logger.error(f"[OpenAI Client][Sync] Invalid prompt type: {type(prompt)}. Expected str or list.")
+            logger.error(f"[OpenAI Client][Sync] Invalid prompt type: {type(messages)}. Expected str or list.")
             return None
 
         # Prepare API call arguments
@@ -151,10 +156,11 @@ def call_openai_api(
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS)
+    # Combine specific exception types with the 5xx check
+    retry=(retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES) | retry_if_exception_type(is_5xx_error))
 )
 async def acall_openai_api(
-    prompt: Any,
+    messages: list, # Changed from 'prompt' to 'messages'
     model: str = OPENAI_MODEL,
     max_tokens: int = 4096,
     temperature: float = 0.3,
@@ -175,12 +181,12 @@ async def acall_openai_api(
         logger.info(f"[OpenAI Client][Async] Calling Responses API with model: {actual_model}")
 
         # Prepare input for Responses API
-        if isinstance(prompt, str):
-            api_input = [{"role": "user", "content": prompt}]
-        elif isinstance(prompt, list):
-            api_input = prompt
+        if isinstance(messages, str):
+            api_input = [{"role": "user", "content": messages}]
+        elif isinstance(messages, list):
+            api_input = messages
         else:
-            logger.error(f"[OpenAI Client][Async] Invalid prompt type: {type(prompt)}. Expected str or list.")
+            logger.error(f"[OpenAI Client][Async] Invalid prompt type: {type(messages)}. Expected str or list.")
             return None
 
         # Prepare API call arguments

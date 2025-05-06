@@ -1,28 +1,22 @@
-# Steam Review Analysis Tool
+# Steam Review & YouTube Feedback Analysis Tool
 
-This project fetches, translates, analyzes, and stores Steam game reviews to provide insights and generate reports, with options for on-demand generation via a web UI or scheduled delivery to Slack.
+This project fetches, translates, analyzes, and stores Steam game reviews and YouTube video feedback to provide insights and generate reports.
 
 ## Overview
 
 The system consists of:
 
-1.  **Backend Data Pipeline:**
-    *   Fetches new reviews periodically for tracked games using the Steam API.
-    *   Stores review data in a PostgreSQL database.
-    *   Translates non-English reviews using the OpenAI API.
-    *   Performs structured analysis (sentiment, themes, etc.) on each review using the OpenAI API.
-    *   Uses SQLAlchemy for ORM and Alembic for database migrations.
-2.  **Streamlit Web Frontend (Optional):**
-    *   *(Currently enabled in `heroku.yml` as the `web` process)*
-    *   Provides a simple UI to view tracked games.
-    *   Allows users to manage the list of tracked games (add, activate/deactivate).
-    *   Generates on-demand multi-sheet Excel reports summarizing reviews for a selected game and date range.
-3.  **Scheduled Reporting Script:**
-    *   `run_scheduled_report.py`: Generates weekly or monthly Excel reports for a specific App ID.
-    *   Calculates the appropriate date range (last week or last month).
-    *   Calls the same report generation logic used by the frontend.
-    *   Uploads the generated Excel file directly to a specified Slack channel using a Slack Bot Token.
-    *   Designed to be run via a scheduler like `cron`.
+1.  **Backend Data Pipelines:**
+    *   **Steam:** Fetches new reviews periodically for tracked games using the Steam API, stores them, translates non-English reviews (OpenAI), and performs structured analysis (OpenAI).
+    *   **YouTube:** Fetches new videos/transcripts periodically for tracked influencer channels using the Supadata API, stores them, and performs structured analysis (OpenAI) for relevance and feedback.
+    *   **Common:** Uses a PostgreSQL database, SQLAlchemy for ORM, and Alembic for database migrations.
+2.  **Streamlit Web Frontend:**
+    *   Provides a unified UI to manage tracked games, influencers, and channels.
+    *   Allows viewing of analyzed feedback from both Steam and YouTube.
+    *   Generates on-demand multi-sheet Excel reports summarizing feedback for selected games and date ranges.
+3.  **Scheduled Reporting Scripts:**
+    *   `run_scheduled_report.py`: Generates weekly or monthly **Steam review** Excel reports and uploads to Slack.
+    *   `scripts/youtube_slack_reporter.py`: Generates daily, weekly, or monthly **YouTube feedback** Excel reports and uploads to Slack.
 
 ## Local Development Setup
 
@@ -54,9 +48,11 @@ The system consists of:
         *   `OPENAI_API_KEY`: Your OpenAI API key.
         *   `DATABASE_URL`: Connection string for the PostgreSQL database.
             *   Local Docker default: `DATABASE_URL=postgresql://steam_user:steam_password@localhost:5433/steam_reviews_db`
+        *   `SUPADATA_API_KEY`: Your Supadata API key (for YouTube data).
     *   **For Scheduled Slack Reports:**
         *   `SLACK_BOT_TOKEN`: Your Slack Bot token (starting `xoxb-`).
-        *   `DEFAULT_SLACK_CHANNEL_ID`: The default Slack channel ID (e.g., `C123ABC456`) to post reports to if `--channel-id` isn't specified when running the script.
+        *   `DEFAULT_SLACK_CHANNEL_ID`: The default Slack channel ID (e.g., `C123ABC456`) to post reports to if `--channel-id` isn't specified when running the Slack reporter scripts.
+        *   `TEST_SLACK_CHANNEL_ID` (Optional): A channel ID used for testing the Slack client directly (`python -m src.slack_client`).
 
 6.  **Start PostgreSQL Database (Local):**
     *   Ensure Docker Desktop is running.
@@ -70,29 +66,39 @@ The system consists of:
 
 ## Running the Application
 
-### Backend Pipeline
+### Backend Pipelines
 
-*   To manually trigger the full fetch/translate/analyze pipeline:
+*   **Steam Pipeline:** To manually trigger the full fetch/translate/analyze pipeline for Steam reviews:
     ```bash
-    bash run_pipeline.sh
+    bash run_pipeline.sh 
     ```
-*   Or run individual steps:
+    *   Or run individual Steam steps:
+        ```bash
+        python -m src.main_fetcher
+        python -m src.run_translator
+        python -m src.run_analyzer
+        ```
+*   **YouTube Pipeline:** To manually trigger the full fetch/analyze pipeline for YouTube feedback:
     ```bash
-    python -m src.main_fetcher
-    python -m src.run_translator
-    python -m src.run_analyzer
+    bash run_youtube_pipeline.sh
     ```
+    *   Or run individual YouTube steps:
+        ```bash
+        # Optional arguments: --max-age-days (default: 7)
+        python -m scripts.youtube_fetcher [--max-age-days DAYS]
+        python -m scripts.youtube_analyzer_worker
+        ```
 
-### Streamlit Web App (If Enabled)
+### Streamlit Web App
 
 ```bash
 streamlit run streamlit_app.py
 ```
-Access at `http://localhost:8501`.
+Access at `http://localhost:8501`. Navigate using the sidebar to manage Steam/YouTube settings or view feedback.
 
 ### Scheduled Slack Reports
 
-This script generates a report for a specified time period and posts it to Slack.
+These scripts generate reports for a specified time period and post them to Slack.
 
 **Prerequisites:**
 
@@ -101,28 +107,28 @@ This script generates a report for a specified time period and posts it to Slack
 
 **Manual Execution (Local):**
 
-```bash
-# Example: Weekly report for App ID 12345 to default channel
-python run_scheduled_report.py --app-id 12345 --timespan weekly
+*   **Steam:**
+    ```bash
+    # Example: Weekly report for App ID 12345 to default channel
+    python run_scheduled_report.py --app-id 12345 --timespan weekly
+    
+    # Example: Monthly report for App ID 67890 to specific channel CABCDEF123
+    python run_scheduled_report.py --app-id 67890 --timespan monthly --channel-id CABCDEF123
+    ```
+*   **YouTube:**
+    ```bash
+    # Example: Daily report for Game ID 1 to default channel
+    python -m scripts.youtube_slack_reporter --game-id 1 --period last_day
+    
+    # Example: Weekly report for Game ID 1 to specific channel CABCDEF123 with custom message
+    python -m scripts.youtube_slack_reporter --game-id 1 --period last_week --channel-id CABCDEF123 --message "Weekly YouTube Digest"
+    ```
 
-# Example: Monthly report for App ID 67890 to specific channel CABCDEF123
-python run_scheduled_report.py --app-id 67890 --timespan monthly --channel-id CABCDEF123
-```
+**Scheduling with Cron/Scheduler (Example - see `run_scheduled_report.py` for more):**
 
-**Scheduling with Cron (Example):**
+Similar cron setup as shown for Steam, but pointing to `scripts/youtube_slack_reporter.py` with appropriate arguments (e.g., `--period last_day` for daily runs).
 
-Create crontab entries (e.g., using `crontab -e`) on a server where the project code, dependencies, and environment variables are available.
-
-```cron
-# Example: Run weekly report for App ID 12345 every Monday at 8:00 AM
-# Ensure paths and environment setup (e.g., activating venv or setting vars) are correct for your cron environment
-0 8 * * 1 /path/to/.venv/bin/python /path/to/steamreviews/run_scheduled_report.py --app-id 12345 --timespan weekly >> /path/to/logs/steam_report_cron.log 2>&1
-
-# Example: Run monthly report for App ID 12345 on the 1st of the month at 9:00 AM
-0 9 1 * * /path/to/.venv/bin/python /path/to/steamreviews/run_scheduled_report.py --app-id 12345 --timespan monthly >> /path/to/logs/steam_report_cron.log 2>&1
-```
-
-**Slack Setup:**
+**Slack Setup:** (Same as before)
 
 1.  Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app ("From scratch").
 2.  Navigate to "OAuth & Permissions".
@@ -136,24 +142,31 @@ Create crontab entries (e.g., using `crontab -e`) on a server where the project 
 
 *   `.cursor/`: Agent notes, docs, rules, tools.
 *   `alembic/`: Database migration scripts.
+*   `scripts/`: Standalone scripts for pipeline tasks, seeding, testing, reporting.
+    *   `youtube_fetcher.py`: Fetches YouTube video/transcript data.
+    *   `youtube_analyzer_worker.py`: Analyzes fetched YouTube transcripts.
+    *   `youtube_slack_reporter.py`: Generates & uploads YouTube reports to Slack.
+    *   `seed_youtube_test_data.py`, `test_supadata_api.py`, etc.: Utility/test scripts.
 *   `src/`: Main application source code.
-    *   `database/`: SQLAlchemy models, connection, CRUD operations.
-    *   `processing/`: Translation and analysis logic.
-    *   `reporting/`: Excel report generation logic.
-    *   `utils/`: Utility functions (e.g., R2 uploader - *currently removed*).
-    *   `constants.py`: Shared constants.
-    *   `main_fetcher.py`: Orchestrates fetching new reviews.
-    *   `run_translator.py`: Processes pending translations.
-    *   `run_analyzer.py`: Processes pending analyses.
+    *   `database/`: SQLAlchemy models, connection, CRUD operations (`crud.py` for Steam, `crud_youtube.py` for YouTube).
+    *   `processing/`: (Currently Steam) Translation and analysis logic.
+    *   `reporting/`: Excel report generation logic (`excel_generator.py` for Steam, `youtube_report_generator.py` for YouTube).
+    *   `utils/`: Utility functions.
+    *   `youtube/`: YouTube-specific Supadata client and analyzer logic.
     *   `openai_client.py`: Handles OpenAI API calls.
     *   `steam_client.py`: Handles Steam API calls.
-*   `streamlit_app.py`: The Streamlit web frontend.
-*   `run_scheduled_report.py`: Script for scheduled Slack reports.
+    *   `constants.py`: Shared constants.
+    *   `main_fetcher.py`: Orchestrates fetching new Steam reviews.
+    *   `run_translator.py`: Processes pending Steam translations.
+    *   `run_analyzer.py`: Processes pending Steam analyses.
+*   `streamlit_app.py`: The Streamlit web frontend (handles both Steam & YouTube).
+*   `run_scheduled_report.py`: Script for scheduled **Steam** Slack reports.
 *   `alembic.ini`: Alembic configuration.
 *   `docker-compose.yml`: Docker configuration for local database.
 *   `heroku.yml`: Heroku process definitions.
 *   `requirements.txt`: Python dependencies.
-*   `run_pipeline.sh`: Script to run the backend pipeline steps.
+*   `run_pipeline.sh`: Script to run the **Steam** backend pipeline steps.
+*   `run_youtube_pipeline.sh`: Script to run the **YouTube** backend pipeline steps.
 *   `.env.example`: Example environment file.
 *   `README.md`: This file.
 
@@ -166,7 +179,8 @@ This application is currently configured for deployment to Heroku via `heroku.ym
 *   Required Heroku Config Vars (Set via Dashboard or CLI):
     *   `DATABASE_URL`
     *   `OPENAI_API_KEY`
-    *   `SLACK_BOT_TOKEN` (if using scheduled reports via Heroku Scheduler + `run_scheduled_report.py`)
+    *   `SUPADATA_API_KEY`
+    *   `SLACK_BOT_TOKEN` (if using scheduled Slack reports)
     *   `DEFAULT_SLACK_CHANNEL_ID` (optional default for scheduled reports)
 
 *(Note: The previous API server implementation for Zapier integration has been removed but the spec remains in `.cursor/notes/`)* 

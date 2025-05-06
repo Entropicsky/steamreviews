@@ -188,4 +188,52 @@
 *   [ ] **1.7 (Testing):** Perform integration tests locally (measuring time, verifying output, testing LLM error handling).
 *   [ ] **1.8 (Testing):** Perform manual tests in Streamlit app locally (verify UI speed, output, error handling).
 *   [ ] **1.9 (Deploy):** Deploy changes to Heroku.
-*   [ ] **1.10 (Test):** Test functionality on deployed Heroku app. 
+*   [ ] **1.10 (Test):** Test functionality on deployed Heroku app.
+
+## YouTube Feedback Feature
+
+-   [x] **Phase 1: Setup & Core Backend**
+    -   [x] Define & Apply Database Schema (`Games`, `Influencers`, `YouTubeChannels`, `GameInfluencerMapping`, `YouTubeVideos`, `VideoTranscripts`, `VideoFeedbackAnalysis`) using Alembic.
+    -   [x] Implement Supadata API Client (`src/youtube/supadata_client.py`) with methods for channel videos, video metadata, transcripts.
+        - [x] Refined client to use channel handle for `get_channel_videos`.
+        - [x] Fixed URL construction bug.
+        - [x] Improved error handling.
+    -   [x] Implement basic Fetcher Cron Job (`scripts/youtube_fetcher.py`) to get channels, find new videos, fetch transcripts, and store raw data (video metadata, transcript text) with 'pending' status.
+        - [x] Updated fetcher to pass channel handle to client.
+        - [x] Implemented `last_checked_timestamp` logic.
+        - [x] **Test:** Successfully execute fetcher end-to-end (fetching videos & transcripts) for single video.
+    -   [x] Implement Feedback Analyzer (`src/youtube/analyzer.py`) structure for relevance check, summary, and structured feedback extraction (using OpenAI Responses API).
+        - [x] Fixed syntax errors and updated to Responses API format.
+        - [x] Fixed Tenacity/Retry config error.
+        - [x] Fixed Pydantic validation error.
+        - [x] Updated prompt for structured summary.
+    -   [x] Implement Database CRUD functions (`src/database/crud_youtube.py`).
+    -   [x] Implement Analysis Process (Worker Script - `scripts/youtube_analyzer_worker.py`).
+        - [x] **Test:** Successfully execute analyzer worker on fetched data for single video.
+    -   [ ] Unit/Integration tests for client, CRUD, basic fetcher/analyzer logic. *(Partially tested via script runs, formal tests pending)*
+-   [ ] **Phase 2: Streamlit UI & Management**
+    -   [ ] Create Streamlit page (`pages/youtube_feedback.py`).
+    -   [ ] Implement UI for managing Games, Influencers, and Game-Influencer mappings.
+    -   [ ] Implement UI for viewing analyzed feedback (table/cards, filtering by game/date).
+    -   [ ] Implement data download functionality (Excel/CSV).
+    -   [ ] Streamlit UI tests.
+-   [x] **Phase 3: Reporting & Refinement**
+    -   [x] Implement Excel Report Generator (`src/reporting/youtube_report_generator.py`) grouped by influencer.
+        - [x] Added Summary sheet.
+        - [x] Implemented formatting (top-align, wrap, widths).
+        - [x] **Test:** Generated report locally for single video.
+    -   [x] Implement Slack Reporter Cron Job (`scripts/youtube_slack_reporter.py`).
+        - [x] Adapted from Steam reporter script.
+        - [x] Fetches game info (channel ID) from DB.
+        - [x] Calculates date range based on period.
+        - [x] Calls report generator and uploads file via AsyncWebClient.
+        - [x] **Test:** Successfully ran script manually to post report to test channel.
+    -   [ ] Refine LLM prompts for relevance, summary, and structured feedback based on initial results.
+    -   [ ] Add comprehensive error handling and logging.
+    -   [ ] Optimize API usage (delays, batching if possible).
+    -   [ ] End-to-end testing.
+-   [ ] **Phase 4: Documentation & Deployment**
+    -   [ ] Update project README.
+    -   [ ] Ensure necessary environment variables are documented and configured for deployment (Heroku).
+    -   [ ] Add cron job scheduling to Heroku (`heroku.yml` or scheduler add-on).
+    -   [ ] Final review and cleanup. 
