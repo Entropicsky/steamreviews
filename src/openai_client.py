@@ -4,7 +4,7 @@ import logging
 import asyncio # Added for async
 from typing import Any, Optional, Type, Union
 import openai
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, retry_if_exception
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
@@ -70,8 +70,8 @@ def is_5xx_error(e):
     wait=wait_exponential(multiplier=1, min=2, max=10),
     # Combine specific exception types with the 5xx check
     retry=(
-        retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES),
-        retry_if_exception_type(is_5xx_error)
+        retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES) |
+        retry_if_exception(is_5xx_error)
     )
 )
 def call_openai_api(
@@ -161,8 +161,8 @@ def call_openai_api(
     wait=wait_exponential(multiplier=1, min=2, max=10),
     # Combine specific exception types with the 5xx check
     retry=(
-        retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES),
-        retry_if_exception_type(is_5xx_error)
+        retry_if_exception_type(RETRYABLE_EXCEPTION_TYPES) |
+        retry_if_exception(is_5xx_error)
     )
 )
 async def acall_openai_api(
