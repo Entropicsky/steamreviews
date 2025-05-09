@@ -106,7 +106,9 @@ async def generate_youtube_summary_report(db_session: Session, game_id: int, sta
                  'gameplay_loop_feedback', 'monetization_feedback',
                  'video_url' # Include URL for the link
             ]
-            summary_df = feedback_df[summary_cols_to_include].sort_values(by=['influencer_name', 'video_upload_date'], ascending=[True, False])
+            # Old sort: summary_df = feedback_df[summary_cols_to_include].sort_values(by=['influencer_name', 'video_upload_date'], ascending=[True, False])
+            # New sort: primarily by newest video globally, then by influencer name as a secondary sort for tie-breaking (though unlikely with timestamps)
+            summary_df = feedback_df[summary_cols_to_include].sort_values(by=['video_upload_date', 'influencer_name'], ascending=[False, True])
 
             # Write Headers
             for c_idx, col_name in enumerate(summary_df.columns):
