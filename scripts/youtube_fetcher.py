@@ -43,14 +43,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-FETCH_LIMIT_PER_CHANNEL = 50 # How many recent videos to check per channel run
+FETCH_LIMIT_PER_CHANNEL = 100 # How many recent videos to check per channel run (Increased from 50)
 API_DELAY_SECONDS = 1 # Can potentially reduce delay with parallel calls, but monitor Supadata limits
 MAX_VIDEO_WORKERS = 8 # Max concurrent video processing threads per channel
 # DEFAULT_FETCH_VIDEOS_NEWER_THAN_DAYS = 30 # Only process videos uploaded in the last X days (safety net)
 # Default is now set via argparse
 
 # --- Helper Function for Single Video Processing ---
-def _process_single_video(video_id: str, channel_id: str, client: SupadataClient, last_checked_ts: int, safety_cutoff_dt: datetime) -> Dict[str, Any]:
+def _process_single_video(video_id: str, channel_id: str, client: SupadataClient, effective_cutoff_ts: int) -> Dict[str, Any]:
     """Fetches metadata, checks date, fetches transcript, and updates DB for ONE video.
        Designed to run in a thread. Returns a dict with status/results.
     """
@@ -94,13 +94,11 @@ def _process_single_video(video_id: str, channel_id: str, client: SupadataClient
             except ValueError:
                 logger.warning(f"{log_prefix} Could not parse upload date '{upload_date_str}'")
         
-        # Check dates
-        if upload_date_ts <= last_checked_ts:
-            logger.debug(f"{log_prefix} Uploaded {upload_date_dt} <= last check. Skipping.")
-            return result # Status is skipped
-        if upload_date_dt and upload_date_dt < safety_cutoff_dt:
-            logger.debug(f"{log_prefix} Uploaded {upload_date_dt} < safety cutoff. Skipping.")
-            return result # Status is skipped
+        # NEW date check:
+        if upload_date_ts <= effective_cutoff_ts:
+            logger.debug(f"{log_prefix} Uploaded {upload_date_dt} (ts: {upload_date_ts}) is not newer than effective cutoff (ts: {effective_cutoff_ts}). Skipping.")
+            result["status"] = "skipped_older_than_effective_cutoff"
+            return result
 
         logger.info(f"{log_prefix} NEW video found (Title: {metadata.get('title', 'N/A')}) Uploaded: {upload_date_dt}")
         result["status"] = "processing"
@@ -168,35 +166,38 @@ def process_channel(db: Session, client: SupadataClient, channel: YouTubeChannel
 
     channel_id = channel.id 
     channel_handle = channel.handle
-    last_checked_ts = channel.last_checked_timestamp or 0
+    last_checked_ts = channel.last_checked_timestamp or 0 # This is the timestamp of the end of the last successful processing run or manual check
+
+    true_latest_known_video_ts = crud.get_latest_video_upload_timestamp_for_channel(db, channel_id) or 0
+    logger.info(f"Latest known video timestamp in DB for channel {channel_id}: {datetime.fromtimestamp(true_latest_known_video_ts, tz=timezone.utc).isoformat() if true_latest_known_video_ts > 0 else 'None'}")
 
     last_checked_dt = datetime.fromtimestamp(last_checked_ts, tz=timezone.utc)
-    logger.info(f"Processing channel {channel_id} ({channel_handle or 'No Handle'}). Last checked: {last_checked_dt.isoformat()}")
+    logger.info(f"Processing channel {channel_id} ({channel_handle or 'No Handle'}). Last checked run finished: {last_checked_dt.isoformat()}")
+    
     safety_cutoff_dt = datetime.now(timezone.utc) - timedelta(days=max_age_days)
-    logger.info(f"Safety cutoff date (videos older than this will be skipped): {safety_cutoff_dt.isoformat()}")
+    logger.info(f"Safety cutoff date (videos older than this will be skipped if no newer known video): {safety_cutoff_dt.isoformat()}")
+
+    effective_cutoff_ts = max(true_latest_known_video_ts, int(safety_cutoff_dt.timestamp()))
+    logger.info(f"Effective cutoff for new videos (timestamp): {effective_cutoff_ts} ({datetime.fromtimestamp(effective_cutoff_ts, tz=timezone.utc).isoformat() if effective_cutoff_ts > 0 else 'Epoch'})")
 
     try:
         # 1. Get recent video IDs from the channel using the handle
         if not channel_handle:
              logger.error(f"Channel {channel_id} is missing a handle. Cannot fetch videos.")
-             # Update timestamp to avoid retrying indefinitely?
              now_ts = int(datetime.now(timezone.utc).timestamp())
              crud.update_channel_timestamp(db, channel_id, now_ts)
              return
 
         video_ids = client.get_channel_videos(channel_handle, limit=FETCH_LIMIT_PER_CHANNEL, type='video')
-        # Removed sleep here as workers will make calls
 
         if video_ids is None:
             logger.warning(f"Fetching video IDs failed for channel handle {channel_handle}.")
-            # Update timestamp even if fetch failed to mark it as checked (avoids retrying constantly on persistent API error)
             now_ts = int(datetime.now(timezone.utc).timestamp())
             crud.update_channel_timestamp(db, channel_id, now_ts)
             return
             
         if not video_ids:
-            logger.info(f"No recent videos returned for channel handle {channel_handle}.")
-            # Update timestamp even if no videos found to mark it as checked
+            logger.info(f"No recent videos returned by Supadata for channel handle {channel_handle}.")
             now_ts = int(datetime.now(timezone.utc).timestamp())
             crud.update_channel_timestamp(db, channel_id, now_ts)
             return
@@ -204,29 +205,25 @@ def process_channel(db: Session, client: SupadataClient, channel: YouTubeChannel
         latest_video_timestamp_this_run = last_checked_ts 
 
         # 2. Process video IDs in parallel
-        logger.info(f"Submitting {len(video_ids)} videos for parallel processing (Max Workers: {MAX_VIDEO_WORKERS})...")
+        logger.info(f"Submitting {len(video_ids)} videos for parallel processing (Max Workers: {MAX_VIDEO_WORKERS}). Using effective_cutoff_ts: {effective_cutoff_ts}")
         tasks = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_VIDEO_WORKERS) as executor:
             future_map = {}
             for video_id in video_ids:
-                # Submit task: process one video
                 future = executor.submit(
                     _process_single_video, 
                     video_id=video_id, 
                     channel_id=channel_id, 
                     client=client, 
-                    last_checked_ts=last_checked_ts,
-                    safety_cutoff_dt=safety_cutoff_dt
+                    effective_cutoff_ts=effective_cutoff_ts # Pass the new combined cutoff
                 )
-                future_map[future] = video_id # Map future to video ID
+                future_map[future] = video_id
 
-            # Process results as they complete
             for future in concurrent.futures.as_completed(future_map):
                 vid = future_map[future]
                 processed_video_ids_count += 1
                 try:
                     result_data = future.result()
-                    # Aggregate stats
                     if result_data["new_video_added"]:
                         new_video_count += 1
                     if result_data["transcript_fetched"]:
@@ -235,39 +232,27 @@ def process_channel(db: Session, client: SupadataClient, channel: YouTubeChannel
                         transcript_failed_count += 1
                     if result_data["transcript_unavailable"]:
                         transcript_unavailable_count += 1
-                    # Update latest timestamp only if video was processed (not skipped/failed early)
-                    if result_data["status"] not in ["skipped", "metadata_failed", "db_add_failed", "worker_exception"]:
+                    if result_data["status"] not in ["skipped", "skipped_older_than_effective_cutoff", "metadata_failed", "db_add_failed", "worker_exception"]:
                         latest_processed_upload_ts = max(latest_processed_upload_ts, result_data["upload_timestamp"])
                     
                 except Exception as exc:
                     logger.error(f"Video processing task for {vid} generated exception: {exc}", exc_info=True)
-                    # How to count failure here? Maybe add another counter.
-                    # Increment a general failure counter for the channel summary perhaps?
-                    # For now, let's assume transcript_failed covers most worker errors impacting stats.
-                    # If we add a specific counter, initialize it at start of process_channel.
 
         logger.info(f"Finished parallel processing for {len(video_ids)} submitted videos.")
-        # Update latest_video_timestamp_this_run based on successfully processed videos
         latest_video_timestamp_this_run = max(last_checked_ts, latest_processed_upload_ts)
                 
-        # --- Finished processing video IDs for this channel --- 
-
-        # 8. Update last checked timestamp for the channel
-        # Use the latest timestamp found among the *successfully processed* videos in this run
         if latest_video_timestamp_this_run > last_checked_ts:
             crud.update_channel_timestamp(db, channel_id, latest_video_timestamp_this_run)
-            logger.info(f"Updated last checked timestamp for channel {channel_id} to {datetime.fromtimestamp(latest_video_timestamp_this_run, tz=timezone.utc)}")
+            logger.info(f"Updated last checked timestamp for channel {channel_id} to latest processed video: {datetime.fromtimestamp(latest_video_timestamp_this_run, tz=timezone.utc)}")
         else:
-             # If no newer videos were *successfully processed*, update to current time
              now_ts = int(datetime.now(timezone.utc).timestamp())
              crud.update_channel_timestamp(db, channel_id, now_ts)
-             logger.info(f"No newer videos processed for channel {channel_id}, updating checked timestamp to now ({datetime.fromtimestamp(now_ts, tz=timezone.utc)}).")
+             logger.info(f"No newer videos processed for channel {channel_id} than last run, updating checked timestamp to now ({datetime.fromtimestamp(now_ts, tz=timezone.utc)}).")
 
     except SupadataAPIError as e:
         logger.error(f"Supadata API Error processing channel {channel_id}: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"Unexpected error processing channel {channel_id}: {e}", exc_info=True)
-        # Don't update timestamp on unexpected error, try again next time
     finally:
          logger.info(f"Channel {channel_id} Summary: Processed IDs={processed_video_ids_count}, New Videos Added={new_video_count}, Transcripts Fetched={transcript_fetched_count}, Transcripts Failed={transcript_failed_count}, Transcripts Unavailable={transcript_unavailable_count}")
 
