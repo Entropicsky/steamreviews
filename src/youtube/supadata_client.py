@@ -5,6 +5,7 @@ import json
 from typing import List, Dict, Any, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 from dotenv import load_dotenv
+import time # Added for retry delay
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,10 @@ class SupadataAPIError(Exception):
 class SupadataClient:
     """Client for interacting with the Supadata YouTube API."""
 
+    MAX_RETRIES = 3
+    INITIAL_RETRY_DELAY_SECONDS = 5
+    REQUEST_TIMEOUT_SECONDS = 30 # Existing timeout
+
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("SUPADATA_API_KEY")
         if not self.api_key:
@@ -30,7 +35,7 @@ class SupadataClient:
         self.base_url = SUPADATA_API_BASE_URL
 
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None, data: Optional[Dict] = None) -> Optional[Dict | List]:
-        """Internal helper for making authenticated API requests."""
+        """Internal helper for making authenticated API requests with retries."""
         if not self.api_key:
             logger.error("Cannot make Supadata API request: API key is missing.")
             return None
@@ -41,48 +46,85 @@ class SupadataClient:
             "Accept": "application/json"
         }
 
-        try:
-            logger.debug(f"Making Supadata API request: {method} {url} | Params: {params} | Body: {data}")
-            response = requests.request(
-                method=method,
-                url=url,
-                headers=headers,
-                params=params,
-                json=data,
-                timeout=30
-            )
-            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
-
-            # Check for empty successful response before JSON decoding
-            if response.status_code == 204: # No Content
-                 logger.debug(f"Received 204 No Content response from {url}")
-                 return None # Or return {} if appropriate for the endpoint?
-            if not response.content:
-                 logger.debug(f"Received empty response body from {url} with status {response.status_code}")
-                 # Decide how to handle - sometimes APIs return 200 with empty body
-                 return None # Treat as no data found for now
-
-            return response.json()
-
-        except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code
+        last_exception = None
+        for attempt in range(self.MAX_RETRIES + 1):
             try:
-                error_details = e.response.json()
-                logger.error(f"Supadata API HTTP Error {status_code} for {url}: {error_details}", exc_info=False) # Log details if JSON
-                # Propagate specific error info if needed
-            except json.JSONDecodeError:
-                logger.error(f"Supadata API HTTP Error {status_code} for {url}. Response not JSON: {e.response.text[:200]}", exc_info=False)
-            return None # Indicate failure
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error connecting to Supadata API at {url}: {e}", exc_info=True)
-            return None
-        except json.JSONDecodeError as e:
-             logger.error(f"Failed to decode JSON response from {url}: {e}", exc_info=True)
-             logger.debug(f"Raw response causing JSON error: {response.text[:500]}") # Log raw response on decode error
-             return None
-        except Exception as e:
-             logger.error(f"An unexpected error occurred during Supadata API request to {url}: {e}", exc_info=True)
-             return None
+                logger.debug(f"Making Supadata API request (Attempt {attempt + 1}/{self.MAX_RETRIES + 1}): {method} {url} | Params: {params} | Body: {data}")
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    json=data,
+                    timeout=self.REQUEST_TIMEOUT_SECONDS
+                )
+                response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+                if response.status_code == 204:
+                     logger.debug(f"Received 204 No Content response from {url}")
+                     return None
+                if not response.content:
+                     logger.debug(f"Received empty response body from {url} with status {response.status_code}")
+                     return None
+
+                return response.json()
+
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code
+                try:
+                    error_details = e.response.json()
+                    logger.error(f"Supadata API HTTP Error {status_code} for {url} (Attempt {attempt + 1}): {error_details}", exc_info=False)
+                except json.JSONDecodeError:
+                    logger.error(f"Supadata API HTTP Error {status_code} for {url} (Attempt {attempt + 1}). Response not JSON: {e.response.text[:200]}", exc_info=False)
+                # For HTTP errors (4xx, 5xx), decide if retry is appropriate.
+                # Generally, client errors (4xx) shouldn't be retried unless it's a rate limit (429).
+                # Server errors (5xx) are good candidates for retries.
+                if 500 <= status_code < 600:
+                    last_exception = e
+                    if attempt < self.MAX_RETRIES:
+                        delay = self.INITIAL_RETRY_DELAY_SECONDS * (2 ** attempt)
+                        logger.warning(f"Retrying in {delay}s due to HTTP {status_code}...")
+                        time.sleep(delay)
+                        continue # Go to next attempt
+                    else:
+                        logger.error(f"Max retries reached for HTTP {status_code} error.")
+                        return None # Or raise last_exception
+                else: # Non-retryable HTTP error (e.g., 400, 401, 403, 404)
+                    return None # Indicate failure immediately
+
+            except requests.exceptions.RequestException as e: # Catches ConnectTimeout, ReadTimeout, ConnectionError etc.
+                last_exception = e
+                logger.warning(f"RequestException connecting to Supadata API at {url} (Attempt {attempt + 1}): {e}")
+                if attempt < self.MAX_RETRIES:
+                    delay = self.INITIAL_RETRY_DELAY_SECONDS * (2 ** attempt)
+                    logger.warning(f"Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    logger.error(f"Max retries reached for RequestException.")
+                    return None # Or raise last_exception
+
+            except json.JSONDecodeError as e:
+                 # This error occurs after a successful request but with invalid JSON response.
+                 # Usually not a candidate for retry unless the API is known to sometimes return malformed JSON temporarily.
+                 logger.error(f"Failed to decode JSON response from {url} (Attempt {attempt + 1}): {e}", exc_info=True)
+                 # If response object exists and has text, log it
+                 try:
+                     if 'response' in locals() and response.text:
+                         logger.debug(f"Raw response causing JSON error: {response.text[:500]}")
+                 except Exception:
+                     pass # Avoid error in logging
+                 return None # Don't retry JSON decode errors by default
+
+            except Exception as e:
+                 # Catch-all for other unexpected errors
+                 logger.error(f"An unexpected error occurred during Supadata API request to {url} (Attempt {attempt + 1}): {e}", exc_info=True)
+                 last_exception = e # Store it in case we need to raise it after retries
+                 # Decide if these are retryable - for now, let's not retry generic Exceptions
+                 return None # Or raise e if it should halt immediately
+
+        # If loop finishes without returning (e.g. max retries for retryable exceptions)
+        logger.error(f"All retry attempts failed for {method} {url}. Last error: {last_exception}")
+        return None # Or raise last_exception if preferred
 
     def get_channel_videos(self, channel_handle: str, limit: int = 50, type: str = "video") -> Optional[List[str]]:
         """Fetches recent video IDs for a channel using its handle (e.g., @handle)."""
