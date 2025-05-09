@@ -5,10 +5,10 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from sqlalchemy import func, update, select
+from sqlalchemy import func, update, select, desc
 from sqlalchemy.orm import joinedload
 
-from .models import Game, Influencer, YouTubeChannel, GameInfluencerMapping, YouTubeVideo, VideoTranscript, VideoFeedbackAnalysis
+from .models import Game, Influencer, YouTubeChannel, GameInfluencerMapping, YouTubeVideo, VideoTranscript, VideoFeedbackAnalysis, Video
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +219,18 @@ def add_video(db: Session, video_id: str, channel_id: str, title: Optional[str],
         return None
 
 def get_video_by_id(db: Session, video_id: str) -> Optional[YouTubeVideo]:
-     return db.query(YouTubeVideo).filter(YouTubeVideo.id == video_id).first()
+    return db.query(YouTubeVideo).filter(YouTubeVideo.id == video_id).first()
+
+def get_latest_video_upload_timestamp_for_channel(db: Session, channel_id: str) -> Optional[int]:
+    """
+    Gets the Unix timestamp of the most recent video upload date for a given channel.
+    Returns None if no videos are found for the channel.
+    """
+    latest_video_date = db.query(func.max(YouTubeVideo.upload_date)).filter(YouTubeVideo.channel_id == channel_id).scalar()
+    if latest_video_date:
+        # Assuming upload_date is stored as a timezone-aware datetime object
+        return int(latest_video_date.timestamp())
+    return None
 
 def update_video_transcript_status(db: Session, video_id: str, status: str) -> bool:
     try:
