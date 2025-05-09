@@ -1,14 +1,13 @@
 # src/database/crud_youtube.py
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, aliased
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from sqlalchemy import func, update, select, desc
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, update, select, desc, or_
 
-from .models import Game, Influencer, YouTubeChannel, GameInfluencerMapping, YouTubeVideo, VideoTranscript, VideoFeedbackAnalysis, Video
+from .models import Game, Influencer, YouTubeChannel, GameInfluencerMapping, YouTubeVideo, VideoTranscript, VideoFeedbackAnalysis
 
 logger = logging.getLogger(__name__)
 
