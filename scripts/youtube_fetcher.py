@@ -162,22 +162,22 @@ def process_channel(db: Session, client: SupadataClient, channel: YouTubeChannel
     transcript_fetched_count = 0
     transcript_failed_count = 0
     transcript_unavailable_count = 0
-    latest_processed_upload_ts = 0 # Track latest upload TS *processed* successfully
+    highest_ts_of_newly_added_video_this_run = 0 # NEW: Tracks the timestamp of the newest video *actually added* in this run
 
-    channel_id = channel.id 
+    channel_id = channel.id
     channel_handle = channel.handle
-    last_checked_ts = channel.last_checked_timestamp or 0 # This is the timestamp of the end of the last successful processing run or manual check
 
-    true_latest_known_video_ts = crud.get_latest_video_upload_timestamp_for_channel(db, channel_id) or 0
-    logger.info(f"Latest known video timestamp in DB for channel {channel_id}: {datetime.fromtimestamp(true_latest_known_video_ts, tz=timezone.utc).isoformat() if true_latest_known_video_ts > 0 else 'None'}")
+    true_latest_known_video_ts_in_db = crud.get_latest_video_upload_timestamp_for_channel(db, channel_id) or 0
+    logger.info(f"Latest known video timestamp in DB for channel {channel_id}: {datetime.fromtimestamp(true_latest_known_video_ts_in_db, tz=timezone.utc).isoformat() if true_latest_known_video_ts_in_db > 0 else 'None'}")
 
-    last_checked_dt = datetime.fromtimestamp(last_checked_ts, tz=timezone.utc)
-    logger.info(f"Processing channel {channel_id} ({channel_handle or 'No Handle'}). Last checked run finished: {last_checked_dt.isoformat()}")
-    
+    # For logging the previous last_checked_timestamp, we can still use channel.last_checked_timestamp
+    previous_last_checked_dt = datetime.fromtimestamp(channel.last_checked_timestamp, tz=timezone.utc) if channel.last_checked_timestamp and channel.last_checked_timestamp > 0 else "Never"
+    logger.info(f"Processing channel {channel_id} ({channel_handle or 'No Handle'}). Previous DB last_checked_timestamp: {previous_last_checked_dt if isinstance(previous_last_checked_dt, str) else previous_last_checked_dt.isoformat()}")
+
     safety_cutoff_dt = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     logger.info(f"Safety cutoff date (videos older than this will be skipped if no newer known video): {safety_cutoff_dt.isoformat()}")
 
-    effective_cutoff_ts = max(true_latest_known_video_ts, int(safety_cutoff_dt.timestamp()))
+    effective_cutoff_ts = max(true_latest_known_video_ts_in_db, int(safety_cutoff_dt.timestamp()))
     logger.info(f"Effective cutoff for new videos (timestamp): {effective_cutoff_ts} ({datetime.fromtimestamp(effective_cutoff_ts, tz=timezone.utc).isoformat() if effective_cutoff_ts > 0 else 'Epoch'})")
 
     try:
@@ -202,8 +202,6 @@ def process_channel(db: Session, client: SupadataClient, channel: YouTubeChannel
             crud.update_channel_timestamp(db, channel_id, now_ts)
             return
 
-        latest_video_timestamp_this_run = last_checked_ts 
-
         # 2. Process video IDs in parallel
         logger.info(f"Submitting {len(video_ids)} videos for parallel processing (Max Workers: {MAX_VIDEO_WORKERS}). Using effective_cutoff_ts: {effective_cutoff_ts}")
         tasks = []
@@ -226,28 +224,31 @@ def process_channel(db: Session, client: SupadataClient, channel: YouTubeChannel
                     result_data = future.result()
                     if result_data["new_video_added"]:
                         new_video_count += 1
+                        # Update the highest timestamp of a video *actually added* in this run
+                        highest_ts_of_newly_added_video_this_run = max(highest_ts_of_newly_added_video_this_run, result_data["upload_timestamp"])
                     if result_data["transcript_fetched"]:
                         transcript_fetched_count += 1
                     if result_data["transcript_failed"]:
                         transcript_failed_count += 1
                     if result_data["transcript_unavailable"]:
                         transcript_unavailable_count += 1
-                    if result_data["status"] not in ["skipped", "skipped_older_than_effective_cutoff", "metadata_failed", "db_add_failed", "worker_exception"]:
-                        latest_processed_upload_ts = max(latest_processed_upload_ts, result_data["upload_timestamp"])
-                    
+
                 except Exception as exc:
                     logger.error(f"Video processing task for {vid} generated exception: {exc}", exc_info=True)
 
         logger.info(f"Finished parallel processing for {len(video_ids)} submitted videos.")
-        latest_video_timestamp_this_run = max(last_checked_ts, latest_processed_upload_ts)
-                
-        if latest_video_timestamp_this_run > last_checked_ts:
-            crud.update_channel_timestamp(db, channel_id, latest_video_timestamp_this_run)
-            logger.info(f"Updated last checked timestamp for channel {channel_id} to latest processed video: {datetime.fromtimestamp(latest_video_timestamp_this_run, tz=timezone.utc)}")
-        else:
-             now_ts = int(datetime.now(timezone.utc).timestamp())
-             crud.update_channel_timestamp(db, channel_id, now_ts)
-             logger.info(f"No newer videos processed for channel {channel_id} than last run, updating checked timestamp to now ({datetime.fromtimestamp(now_ts, tz=timezone.utc)}).")
+
+        # NEW LOGIC for updating channel timestamp
+        if highest_ts_of_newly_added_video_this_run > true_latest_known_video_ts_in_db:
+            # We actually added one or more videos that are newer than what we previously knew from the DB.
+            # Update the channel's timestamp to the newest one we just added.
+            crud.update_channel_timestamp(db, channel_id, highest_ts_of_newly_added_video_this_run)
+            logger.info(f"Updated last_checked_timestamp for channel {channel_id} to {datetime.fromtimestamp(highest_ts_of_newly_added_video_this_run, tz=timezone.utc).isoformat()} (new videos added).")
+        # The cases for 'video_ids is None' (Supadata call failed) or 'not video_ids' (Supadata returned empty list) are handled earlier by updating to now_ts.
+        # This 'elif' covers the case where Supadata returned videos, but none were new enough to be added.
+        elif video_ids: # This implies video_ids is not None and not empty, but no new videos were *added*
+            logger.info(f"Channel {channel_id}: Checked {len(video_ids)} videos from Supadata. No videos were found and added that were newer than the current DB high-water mark of {datetime.fromtimestamp(true_latest_known_video_ts_in_db, tz=timezone.utc).isoformat() if true_latest_known_video_ts_in_db > 0 else 'None'}.")
+            # DO NOT update last_checked_timestamp to now() in this case.
 
     except SupadataAPIError as e:
         logger.error(f"Supadata API Error processing channel {channel_id}: {e}", exc_info=True)
