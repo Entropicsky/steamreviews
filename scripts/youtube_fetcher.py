@@ -43,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-FETCH_LIMIT_PER_CHANNEL = 100 # How many recent videos to check per channel run (Increased from 50)
+FETCH_LIMIT_PER_CHANNEL = 30 # How many recent videos to check per channel run (Changed from 100)
 API_DELAY_SECONDS = 1 # Can potentially reduce delay with parallel calls, but monitor Supadata limits
 MAX_VIDEO_WORKERS = 8 # Max concurrent video processing threads per channel
 # DEFAULT_FETCH_VIDEOS_NEWER_THAN_DAYS = 30 # Only process videos uploaded in the last X days (safety net)
