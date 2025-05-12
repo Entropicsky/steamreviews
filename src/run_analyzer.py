@@ -55,7 +55,13 @@ def _process_single_analysis(review: models.Review, analyzer: ReviewAnalyzer) ->
             text_to_analyze = review.original_review_text
     
     if not text_to_analyze or not text_to_analyze.strip():
-        logger.warning(f"Thread skipping analysis for review {recommendation_id}: No suitable text.")
+        # Add specific logging here
+        log_message = f"Thread skipping analysis for review {recommendation_id}: No suitable text."
+        if review.original_language == 'english':
+            log_message += f" (Original text was empty/whitespace for English review. Original Text: '{review.original_review_text}')" # Log the actual text if possible (might be None or empty string)
+        else: # Should ideally not happen for translated reviews due to check earlier, but log just in case
+            log_message += f" (Review language: {review.original_language}, Translation Status: {review.translation_status})"
+        logger.warning(log_message) # Use the constructed message
         thread_db: Optional[Session] = None
         try:
             thread_db = SessionLocal()

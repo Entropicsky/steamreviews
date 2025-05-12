@@ -93,7 +93,8 @@ Populate the fields based *only* on the provided review text. If a category (e.g
                         else:
                             raise ValueError("No JSON object found in response.")
                     except (json.JSONDecodeError, ValueError, ValidationError) as parse_err:
-                        logger.error(f"Failed to parse/validate analysis JSON: {parse_err}\nRaw response:\n{analysis_response_text}")
+                        # Make logging more prominent and ensure raw response is logged
+                        logger.exception(f"Failed to parse/validate analysis JSON. Error: {parse_err}. Raw response received from API:\n---\n{analysis_response_text}\n---")
                         return {"error": "Failed to parse/validate analysis JSON from AI.", "raw_response": analysis_response_text}
             else:
                  logger.error("Analysis generation failed (API returned None or empty string).")
