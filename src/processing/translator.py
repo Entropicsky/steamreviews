@@ -85,7 +85,7 @@ class Translator:
 
         try:
             translated_text = call_openai_api(
-                prompt=prompt,
+                messages=prompt,
                 model=self.model,
                 temperature=0.3
             )

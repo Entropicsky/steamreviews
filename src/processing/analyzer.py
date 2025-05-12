@@ -63,7 +63,7 @@ Populate the fields based *only* on the provided review text. If a category (e.g
         try:
             logger.debug(f"Sending review text snippet for analysis: {review_text[:100]}...")
             analysis_response_text = call_openai_api(
-                prompt=prompt,
+                messages=prompt,
                 model=self.model,
                 temperature=0.2, # Low temp for extraction tasks
                 max_tokens=1000 # Adjust as needed based on expected output size
