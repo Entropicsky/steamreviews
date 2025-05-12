@@ -98,12 +98,16 @@ class Translator:
                 return translated_text
             elif translated_text and translated_text.startswith("[REFUSAL"):
                  logger.warning(f"Translation refused for key {cache_key[:50]}...: {translated_text}")
-                 # Store refusal message in cache?
-                 # self.translation_cache[cache_key] = translated_text
-                 # self._save_cache()
                  return translated_text # Return refusal message
             else:
-                logger.error(f"Translation failed for key {cache_key[:50]}... (API returned None)")
+                # Clarify log and add original text
+                log_message_trans = f"Translation failed for key {cache_key[:50]}... API returned None or empty string (not a refusal)."
+                if translated_text is None:
+                    log_message_trans += " Return was None."
+                else: # It was an empty string
+                    log_message_trans += f" Return was empty string: '{translated_text}'."
+                log_message_trans += f" Original text for translation was: '{text[:200]}...'"
+                logger.error(log_message_trans)
                 return None # Indicate failure explicitly
 
         except Exception as e:
